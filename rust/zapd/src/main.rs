@@ -24,8 +24,11 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Parser;
+use tokio::sync::watch;
+use zap_api::ApiService;
 use zap_core::InMemoryHistory;
 use zap_proxy::{LoggingListener, Proxy, ProxyConfig, ProxyListener};
 use zap_store::{Session, SessionHistoryListener};
@@ -119,6 +122,23 @@ async fn main() -> ExitCode {
         Arc::new(LoggingListener::new(0)),
         Arc::new(SessionHistoryListener::new(Arc::clone(&session))),
     ];
+    let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+    let on_shutdown = {
+        let shutdown_tx = shutdown_tx.clone();
+        Arc::new(move || {
+            let shutdown_tx = shutdown_tx.clone();
+            std::thread::spawn(move || {
+                // Let the JSON response leave before the process ends.
+                std::thread::sleep(Duration::from_millis(250));
+                let _ = shutdown_tx.send(true);
+            });
+        }) as Arc<dyn Fn() + Send + Sync>
+    };
+    let api = Arc::new(ApiService::new(
+        Arc::clone(&session),
+        env!("CARGO_PKG_VERSION"),
+        on_shutdown,
+    ));
     let config = ProxyConfig {
         listen: SocketAddr::new(ip, cli.port),
         ca_dir: cli.ca_dir.clone(),
@@ -126,6 +146,7 @@ async fn main() -> ExitCode {
         listeners,
         extra_root_pems: Vec::new(),
         history: Some(history),
+        early_override: Some(Arc::new(move |message| api.handle(message))),
     };
 
     let proxy = match Proxy::start(config).await {
@@ -147,10 +168,20 @@ async fn main() -> ExitCode {
         cli.session.display(),
         proxy.history().len()
     );
+    println!("API: http://zap/JSON/ via this proxy");
     println!("Not an official OWASP ZAP build.");
 
-    if tokio::signal::ctrl_c().await.is_err() {
-        eprintln!("zapd: failed to wait for interrupt");
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            if result.is_err() {
+                eprintln!("zapd: failed to wait for interrupt");
+            }
+        }
+        changed = shutdown_rx.changed() => {
+            if changed.is_err() || !*shutdown_rx.borrow() {
+                eprintln!("zapd: shutdown watch closed");
+            }
+        }
     }
     proxy.shutdown().await;
     ExitCode::SUCCESS

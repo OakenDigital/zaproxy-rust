@@ -9,7 +9,7 @@ in order and may mutate a message, supply a response (the origin is not
 contacted), or stop later listeners.
 
 The Java tree in the repository root is unchanged and remains the behavioral
-spec. This directory does not serve the ZAP API or scan.
+spec. This directory does not scan.
 
 ## Run
 
@@ -32,6 +32,26 @@ segments). Alert rows are in the same file — plugin id, risk, confidence,
 CWE, WASC, param, and URL — but this build does not raise alerts.
 
 `--version` prints the version and does not open the session file.
+
+## API
+
+Requests whose host is `zap` are answered by the proxy and are not forwarded
+or stored. JSON only. These routes use the same keys as the ZAP daemon for
+this subset:
+
+| Route | Body |
+| --- | --- |
+| `GET http://zap/JSON/core/view/version/` | `{"version":"<zapd version>"}` |
+| `GET http://zap/JSON/core/view/hosts/` | `{"hosts":["example.com", ...]}` |
+| `GET http://zap/JSON/core/view/messages/` | `{"messages":["<message json>", ...]}` |
+| `GET http://zap/JSON/core/action/shutdown/` | `{"Result":"OK"}`, then the process exits |
+| `GET http://zap/JSON/alert/view/alerts/` | `{"alerts":["<alert json>", ...]}` |
+| `GET http://zap/JSON/alert/view/alert/?id=1` | `{"alert":"<alert json>"}` |
+
+`messages` accepts `baseurl`, `start`, and `count`. `alerts` also accepts
+`riskId` and `falsePositive`. `alert` requires `id`. Message and alert
+objects are JSON strings inside the array, matching the ZAP API. No API key
+is required. `core/action/shutdown` returns, then ends the process.
 
 ## Listeners
 

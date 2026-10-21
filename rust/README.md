@@ -6,10 +6,12 @@ Rust intercepting proxy. **Not an official OWASP ZAP build.**
 certificate authority it writes to disk. Each completed exchange is one row in
 memory and in a SQLite session. An exclude regex skips that row. Listeners run
 in order and may mutate a message, supply a response (the origin is not
-contacted), or stop later listeners.
+contacted), or stop later listeners. After history is recorded, a passive-scan
+queue runs one header rule: X-Content-Type-Options (plugin id 10021). There is
+no authentication and no active scan.
 
 The Java tree in the repository root is unchanged and remains the behavioral
-spec. This directory does not scan.
+spec.
 
 ## Run
 
@@ -29,7 +31,8 @@ address and trust `ca.crt` for HTTPS.
 the working directory. Startup reloads history rows from that file into the
 proxy. Each stored exchange also upserts site nodes (host, then path
 segments). Alert rows are in the same file — plugin id, risk, confidence,
-CWE, WASC, param, and URL — but this build does not raise alerts.
+CWE, WASC, param, and URL. The passive-scan queue inserts a row when the
+X-Content-Type-Options rule matches.
 
 `--version` prints the version and does not open the session file.
 
@@ -52,6 +55,18 @@ this subset:
 `riskId` and `falsePositive`. `alert` requires `id`. Message and alert
 objects are JSON strings inside the array, matching the ZAP API. No API key
 is required. `core/action/shutdown` returns, then ends the process.
+`http://zap/` is answered before listeners run, so those calls are not scanned.
+
+## Passive scan
+
+The queue is a proxy listener at order 5001, one after history. It runs on the
+response the client is about to receive. The rule is X-Content-Type-Options
+from pscanrules v70 (plugin id 10021). The Java add-on is not vendored. A
+response with a non-empty body and no header value containing `nosniff` raises
+one alert: risk low (1), confidence medium (2), CWE 693, WASC 15, param
+`x-content-type-options`, and the request URL. At the default threshold
+(medium), client errors, server errors, and redirects are skipped. Threshold
+OFF disables the rule and raises nothing.
 
 ## Listeners
 

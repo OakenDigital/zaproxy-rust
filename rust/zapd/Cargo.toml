@@ -20,4 +20,5 @@ zap-api.workspace = true
 zap-core.workspace = true
 zap-proxy.workspace = true
 zap-pscan.workspace = true
+zap-script.workspace = true
 zap-store.workspace = true

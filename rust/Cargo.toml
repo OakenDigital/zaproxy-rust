@@ -1,6 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["zap-core", "zap-http", "zap-proxy", "zap-store", "zap-api", "zap-pscan", "zapd"]
+# PHASE-7
+# zap-script embeds Boa (boa_engine 0.21, no JVM) for script types `proxy`
+# and `httpsender`. Hook names match ZAP core: proxyRequest, proxyResponse,
+# sendingRequest, responseReceived.
+# AlertOnHttpResponseCodeErrors.js does not run: it calls Nashorn/Graal
+# `Java.type` for java.lang.Integer, java.util.regex.Pattern,
+# org.parosproxy.paros.core.scanner.Alert, ExtensionAlert, and
+# HistoryReference, and it reads the `control` and `model` globals.
+members = ["zap-core", "zap-http", "zap-proxy", "zap-store", "zap-api", "zap-pscan", "zap-script", "zapd"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +18,7 @@ publish = false
 rust-version = "1.88"
 
 [workspace.dependencies]
+boa_engine = "=0.21.1"
 bytes = "1"
 clap = { version = "4.5", features = ["derive"] }
 http = "1"
@@ -34,4 +43,5 @@ zap-core = { path = "zap-core" }
 zap-http = { path = "zap-http" }
 zap-proxy = { path = "zap-proxy" }
 zap-pscan = { path = "zap-pscan" }
+zap-script = { path = "zap-script" }
 zap-store = { path = "zap-store" }

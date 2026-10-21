@@ -20,6 +20,8 @@
 
 #![forbid(unsafe_code)]
 
+mod scripts;
+
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -124,6 +126,10 @@ async fn main() -> ExitCode {
         Arc::new(SessionHistoryListener::new(Arc::clone(&session))),
         Arc::new(PassiveScanListener::new(Arc::clone(&session))),
     ];
+    // PHASE-7: Boa script host. Types `proxy` and `httpsender`.
+    // Hooks: proxyRequest, proxyResponse, sendingRequest, responseReceived.
+    // AlertOnHttpResponseCodeErrors.js does not run (`Java.type` needs a JVM).
+    let listeners = scripts::register(listeners);
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let on_shutdown = {
         let shutdown_tx = shutdown_tx.clone();
@@ -172,6 +178,7 @@ async fn main() -> ExitCode {
     );
     println!("API: http://zap/JSON/ via this proxy");
     println!("Passive scan: X-Content-Type-Options (plugin 10021)");
+    scripts::log_startup();
     println!("Not an official OWASP ZAP build.");
 
     tokio::select! {

@@ -175,6 +175,7 @@ async fn start_proxy(
         listeners,
         extra_root_pems,
         history: None,
+        early_override: None,
     })
     .await
     .expect("proxy start")
@@ -562,6 +563,7 @@ async fn phase1_session_survives_restart() {
         listeners: vec![Arc::new(SessionHistoryListener::new(Arc::clone(&session)))],
         extra_root_pems: Vec::new(),
         history: Some(Arc::clone(&history)),
+        early_override: None,
     })
     .await
     .expect("proxy start");
@@ -612,6 +614,7 @@ async fn phase1_session_survives_restart() {
         listeners: vec![Arc::new(SessionHistoryListener::new(Arc::clone(&session)))],
         extra_root_pems: Vec::new(),
         history: Some(Arc::clone(&history)),
+        early_override: None,
     })
     .await
     .expect("proxy restart");

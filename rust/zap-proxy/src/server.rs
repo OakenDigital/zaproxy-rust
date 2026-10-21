@@ -59,7 +59,14 @@ pub struct ProxyConfig {
     /// Seed for the built-in history listener. `None` starts an empty table.
     /// `zapd` passes the rows reloaded from the SQLite session.
     pub history: Option<Arc<InMemoryHistory>>,
+    /// Called before exclusions and listeners. When it returns true, the
+    /// response already on the message is sent and the origin is not contacted.
+    /// `zapd` uses this for `http://zap/` and `https://zap/`.
+    pub early_override: Option<EarlyOverride>,
 }
+
+/// Handles a request before the proxy applies exclusions or listeners.
+pub type EarlyOverride = Arc<dyn Fn(&mut HttpMessage) -> bool + Send + Sync>;
 
 impl Default for ProxyConfig {
     fn default() -> Self {
@@ -70,6 +77,7 @@ impl Default for ProxyConfig {
             listeners: Vec::new(),
             extra_root_pems: Vec::new(),
             history: None,
+            early_override: None,
         }
     }
 }
@@ -144,6 +152,7 @@ impl Proxy {
             exclude,
             upstream,
             ca,
+            early_override: config.early_override,
         });
         let (shutdown, watch_rx) = watch::channel(false);
         let task = tokio::spawn(accept_loop(listener, state, watch_rx));
@@ -163,6 +172,7 @@ struct State {
     exclude: ExcludeList,
     upstream: UpstreamClient,
     ca: CertificateAuthority,
+    early_override: Option<EarlyOverride>,
 }
 
 async fn accept_loop(
@@ -331,6 +341,13 @@ async fn handle_tunneled(
 }
 
 async fn proxy_message(message: &mut HttpMessage, state: &State) -> HttpResponse {
+    if let Some(handler) = &state.early_override {
+        if handler(message) {
+            return message.response.clone().unwrap_or_else(|| {
+                text_response(StatusCode::BAD_GATEWAY, "handler did not set a response")
+            });
+        }
+    }
     if state.exclude.excludes(&message.url()) {
         return match state.upstream.send(message).await {
             Ok(response) => response,

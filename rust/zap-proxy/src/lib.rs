@@ -22,8 +22,9 @@
 //! Not an official OWASP ZAP build. Binds a port, forwards HTTP, tunnels
 //! `CONNECT` and terminates TLS with a CA written to disk, stores one
 //! in-memory history row per exchange, and runs an ordered listener chain.
-//! A caller can seed that history from a SQLite session; this crate does
-//! not open the database itself.
+//! A caller can seed that history from a SQLite session and can answer
+//! `http://zap/` before the origin is contacted. This crate does not open
+//! the database or route the API itself.
 
 #![forbid(unsafe_code)]
 
@@ -33,7 +34,7 @@ mod server;
 
 pub use ca::CertificateAuthority;
 pub use listeners::{HistoryListener, LoggingListener};
-pub use server::{Proxy, ProxyConfig, RunningProxy};
+pub use server::{EarlyOverride, Proxy, ProxyConfig, RunningProxy};
 pub use zap_core::{
     ChainFlow, ExcludeList, HistoryRow, HttpMessage, HttpResponse, InMemoryHistory, ProxyListener,
     HISTORY_LISTENER_ORDER,

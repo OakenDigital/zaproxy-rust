@@ -1,0 +1,36 @@
+[package]
+name = "zap-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "HTTP/1.1 intercepting proxy with CONNECT, HTTPS MITM, exclusions, and listeners."
+
+[dependencies]
+bytes.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tracing.workspace = true
+zap-core.workspace = true
+zap-http.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true

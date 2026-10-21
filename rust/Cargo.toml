@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["zap-core", "zap-http", "zap-proxy", "zapd"]
+members = ["zap-core", "zap-http", "zap-proxy", "zap-store", "zapd"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,8 +19,10 @@ hyper-rustls = { version = "0.27", default-features = false, features = ["http1"
 hyper-util = { version = "0.1.10", features = ["tokio", "client-legacy", "http1"] }
 rcgen = { version = "=0.14.7", default-features = false, features = ["crypto", "pem", "ring", "x509-parser"] }
 regex = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-pemfile = "2"
+serde_json = "1"
 thiserror = "1"
 tokio = { version = "1.42", features = ["macros", "net", "rt-multi-thread", "io-util", "sync", "time", "signal"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
@@ -30,3 +32,4 @@ webpki-roots = "0.26"
 zap-core = { path = "zap-core" }
 zap-http = { path = "zap-http" }
 zap-proxy = { path = "zap-proxy" }
+zap-store = { path = "zap-store" }

@@ -4,12 +4,12 @@ Rust intercepting proxy. **Not an official OWASP ZAP build.**
 
 `zapd` forwards HTTP/1.1, tunnels `CONNECT`, and terminates HTTPS with a
 certificate authority it writes to disk. Each completed exchange is one row in
-an in-memory history. An exclude regex skips that row. Listeners run in order
-and may mutate a message, supply a response (the origin is not contacted), or
-stop later listeners.
+memory and in a SQLite session. An exclude regex skips that row. Listeners run
+in order and may mutate a message, supply a response (the origin is not
+contacted), or stop later listeners.
 
 The Java tree in the repository root is unchanged and remains the behavioral
-spec. This directory does not persist sessions, serve the ZAP API, or scan.
+spec. This directory does not serve the ZAP API or scan.
 
 ## Run
 
@@ -18,10 +18,20 @@ cargo run -p zapd -- --port 8080
 cargo run -p zapd -- --version
 ```
 
-Single-dash forms `-port`, `-host`, `-exclude`, `-ca-dir`, and `-version` are
-accepted. The CA is written to `zapd-ca/ca.crt` and `zapd-ca/ca.key` (override
-with `--ca-dir`). Point a client at the printed address and trust `ca.crt` for
-HTTPS.
+Single-dash forms `-port`, `-host`, `-exclude`, `-ca-dir`, `-session`, and
+`-version` are accepted. The CA is written to `zapd-ca/ca.crt` and
+`zapd-ca/ca.key` (override with `--ca-dir`). Point a client at the printed
+address and trust `ca.crt` for HTTPS.
+
+## Session
+
+`--session` selects the SQLite file. The default is `zapd-session.sqlite` in
+the working directory. Startup reloads history rows from that file into the
+proxy. Each stored exchange also upserts site nodes (host, then path
+segments). Alert rows are in the same file — plugin id, risk, confidence,
+CWE, WASC, param, and URL — but this build does not raise alerts.
+
+`--version` prints the version and does not open the session file.
 
 ## Listeners
 

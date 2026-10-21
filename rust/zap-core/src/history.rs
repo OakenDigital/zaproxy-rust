@@ -110,6 +110,22 @@ impl InMemoryHistory {
             .map(|row| row.url.clone())
             .collect()
     }
+
+    /// Replace the table with `rows`. The next `record` id is one past the
+    /// largest restored id, so a reloaded session keeps assigning the same
+    /// ids SQLite will assign.
+    pub fn restore(&self, rows: Vec<HistoryRow>) {
+        let next_id = rows
+            .iter()
+            .map(|row| row.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+            .max(1);
+        let mut inner = lock(&self.inner);
+        inner.rows = rows;
+        inner.next_id = next_id;
+    }
 }
 
 fn header_pairs(headers: &HeaderMap) -> Vec<(String, String)> {
@@ -177,5 +193,31 @@ mod tests {
         assert_eq!(row.status, 200);
         assert_eq!(row.request_body.as_ref(), b"req");
         assert_eq!(row.response_body.as_ref(), b"resp");
+    }
+
+    #[test]
+    fn restore_replaces_rows_and_continues_ids() {
+        let history = InMemoryHistory::new();
+        history.restore(vec![HistoryRow {
+            id: 7,
+            url: "http://example.test/old".into(),
+            method: "GET".into(),
+            status: 200,
+            request_headers: Vec::new(),
+            request_body: Bytes::new(),
+            response_headers: Vec::new(),
+            response_body: Bytes::from_static(b"old"),
+            recorded_at_ms: 1,
+        }]);
+        assert_eq!(history.len(), 1);
+        let id = history
+            .record(&message("http://example.test/new", true))
+            .unwrap();
+        assert_eq!(id, 8);
+        let rows = history.rows();
+        assert_eq!(rows[0].url, "http://example.test/old");
+        assert_eq!(rows[0].response_body.as_ref(), b"old");
+        assert_eq!(rows[1].url, "http://example.test/new");
+        assert_eq!(rows[1].id, 8);
     }
 }

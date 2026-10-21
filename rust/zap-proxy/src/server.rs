@@ -56,6 +56,9 @@ pub struct ProxyConfig {
     pub listeners: Vec<Arc<dyn ProxyListener>>,
     /// PEM certificates added to the upstream trust store (tests, private origins).
     pub extra_root_pems: Vec<String>,
+    /// Seed for the built-in history listener. `None` starts an empty table.
+    /// `zapd` passes the rows reloaded from the SQLite session.
+    pub history: Option<Arc<InMemoryHistory>>,
 }
 
 impl Default for ProxyConfig {
@@ -66,6 +69,7 @@ impl Default for ProxyConfig {
             exclude: Vec::new(),
             listeners: Vec::new(),
             extra_root_pems: Vec::new(),
+            history: None,
         }
     }
 }
@@ -125,7 +129,9 @@ impl Proxy {
         let ca = CertificateAuthority::open(&config.ca_dir)?;
         let ca_cert_pem = ca.cert_pem().to_string();
         let upstream = UpstreamClient::new(&config.extra_root_pems)?;
-        let history = Arc::new(InMemoryHistory::new());
+        let history = config
+            .history
+            .unwrap_or_else(|| Arc::new(InMemoryHistory::new()));
         let mut listeners = config.listeners;
         listeners.push(Arc::new(HistoryListener::new(Arc::clone(&history))));
 

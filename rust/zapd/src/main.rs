@@ -31,6 +31,7 @@ use tokio::sync::watch;
 use zap_api::ApiService;
 use zap_core::InMemoryHistory;
 use zap_proxy::{LoggingListener, Proxy, ProxyConfig, ProxyListener};
+use zap_pscan::PassiveScanListener;
 use zap_store::{Session, SessionHistoryListener};
 
 #[derive(Parser, Debug)]
@@ -121,6 +122,7 @@ async fn main() -> ExitCode {
     let listeners: Vec<Arc<dyn ProxyListener>> = vec![
         Arc::new(LoggingListener::new(0)),
         Arc::new(SessionHistoryListener::new(Arc::clone(&session))),
+        Arc::new(PassiveScanListener::new(Arc::clone(&session))),
     ];
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let on_shutdown = {
@@ -169,6 +171,7 @@ async fn main() -> ExitCode {
         proxy.history().len()
     );
     println!("API: http://zap/JSON/ via this proxy");
+    println!("Passive scan: X-Content-Type-Options (plugin 10021)");
     println!("Not an official OWASP ZAP build.");
 
     tokio::select! {

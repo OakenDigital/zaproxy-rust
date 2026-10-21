@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["zap-core", "zap-http", "zap-proxy", "zap-store", "zap-api", "zapd"]
+members = ["zap-core", "zap-http", "zap-proxy", "zap-store", "zap-api", "zap-pscan", "zapd"]
 
 [workspace.package]
 version = "0.1.0"
@@ -33,4 +33,5 @@ zap-api = { path = "zap-api" }
 zap-core = { path = "zap-core" }
 zap-http = { path = "zap-http" }
 zap-proxy = { path = "zap-proxy" }
+zap-pscan = { path = "zap-pscan" }
 zap-store = { path = "zap-store" }

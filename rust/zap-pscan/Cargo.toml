@@ -1,0 +1,19 @@
+[package]
+name = "zap-pscan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Passive-scan queue and the X-Content-Type-Options header rule."
+
+[dependencies]
+bytes.workspace = true
+http.workspace = true
+tracing.workspace = true
+zap-core.workspace = true
+zap-store.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+zap-proxy.workspace = true

@@ -37,9 +37,10 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use zap_proxy::{
-    install_crypto_provider, CertificateAuthority, HttpMessage, HttpResponse, LoggingListener,
-    Proxy, ProxyConfig, ProxyListener,
+    install_crypto_provider, CertificateAuthority, HttpMessage, HttpResponse, InMemoryHistory,
+    LoggingListener, Proxy, ProxyConfig, ProxyListener,
 };
+use zap_store::{Session, SessionHistoryListener};
 
 const HTTP_BODY: &[u8] = b"origin-http-body";
 const HTTPS_BODY: &[u8] = b"origin-https-body";
@@ -173,6 +174,7 @@ async fn start_proxy(
         exclude,
         listeners,
         extra_root_pems,
+        history: None,
     })
     .await
     .expect("proxy start")
@@ -540,5 +542,107 @@ async fn listener_stop_skips_later_listeners_and_the_origin() {
     assert!(proxy.history().is_empty());
 
     proxy.shutdown().await;
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn phase1_session_survives_restart() {
+    let (origin, _) = spawn_http_origin(201, HTTP_BODY).await;
+    let dir = temp_dir("session");
+    let db_path = dir.join("session.sqlite");
+    let ca_dir = dir.join("ca");
+    let exclude = vec![r"http://127\.0\.0\.1:\d+/secret".to_string()];
+
+    let session = Arc::new(Session::open(&db_path).unwrap());
+    let history = Arc::new(InMemoryHistory::new());
+    let proxy = Proxy::start(ProxyConfig {
+        listen: SocketAddr::from(([127, 0, 0, 1], 0)),
+        ca_dir: ca_dir.clone(),
+        exclude: exclude.clone(),
+        listeners: vec![Arc::new(SessionHistoryListener::new(Arc::clone(&session)))],
+        extra_root_pems: Vec::new(),
+        history: Some(Arc::clone(&history)),
+    })
+    .await
+    .expect("proxy start");
+
+    let (status, body) = http_exchange(proxy.local_addr(), &proxy_http(origin, "/hello")).await;
+    assert_eq!(status, 201);
+    assert_eq!(body, HTTP_BODY);
+    let (secret_status, secret_body) =
+        http_exchange(proxy.local_addr(), &proxy_http(origin, "/secret")).await;
+    assert_eq!(secret_status, 201);
+    assert_eq!(secret_body, HTTP_BODY);
+
+    let rows = proxy.history().rows();
+    assert_eq!(rows.len(), 1, "excluded URL must not be stored");
+    assert!(rows[0].url.ends_with("/hello"), "history urls: {rows:?}");
+    assert_eq!(rows[0].status, 201);
+    assert_eq!(rows[0].response_body.as_ref(), HTTP_BODY);
+
+    proxy.shutdown().await;
+    drop(history);
+    drop(session);
+
+    let session = Session::open(&db_path).unwrap();
+    let stored = session.history_rows().unwrap();
+    assert_eq!(stored.len(), 1);
+    assert!(stored[0].url.ends_with("/hello"), "{}", stored[0].url);
+    assert_eq!(stored[0].status, 201);
+    assert_eq!(stored[0].method, "GET");
+    assert_eq!(stored[0].response_body.as_ref(), HTTP_BODY);
+    assert!(stored.iter().all(|row| !row.url.contains("/secret")));
+    let nodes = session.site_nodes().unwrap();
+    assert!(
+        nodes.iter().any(|node| {
+            node.history_id == Some(i64::try_from(stored[0].id).unwrap())
+                && node.url.ends_with("/hello")
+                && node.method.as_deref() == Some("GET")
+        }),
+        "site nodes: {nodes:?}"
+    );
+
+    let history = Arc::new(InMemoryHistory::new());
+    history.restore(stored);
+    let session = Arc::new(session);
+    let proxy = Proxy::start(ProxyConfig {
+        listen: SocketAddr::from(([127, 0, 0, 1], 0)),
+        ca_dir,
+        exclude,
+        listeners: vec![Arc::new(SessionHistoryListener::new(Arc::clone(&session)))],
+        extra_root_pems: Vec::new(),
+        history: Some(Arc::clone(&history)),
+    })
+    .await
+    .expect("proxy restart");
+
+    let reloaded = proxy.history().rows();
+    assert_eq!(reloaded.len(), 1);
+    assert!(reloaded[0].url.ends_with("/hello"));
+    assert_eq!(reloaded[0].status, 201);
+    assert_eq!(reloaded[0].response_body.as_ref(), HTTP_BODY);
+
+    let (status, body) = http_exchange(proxy.local_addr(), &proxy_http(origin, "/again")).await;
+    assert_eq!(status, 201);
+    assert_eq!(body, HTTP_BODY);
+    let urls = proxy.history().urls();
+    assert_eq!(urls.len(), 2, "history urls: {urls:?}");
+    assert!(urls[0].ends_with("/hello"), "history urls: {urls:?}");
+    assert!(urls[1].ends_with("/again"), "history urls: {urls:?}");
+    assert!(urls.iter().all(|url| !url.contains("/secret")));
+
+    proxy.shutdown().await;
+    drop(history);
+    drop(session);
+
+    let session = Session::open(&db_path).unwrap();
+    let stored = session.history_rows().unwrap();
+    assert_eq!(stored.len(), 2);
+    assert!(stored[0].url.ends_with("/hello"), "{}", stored[0].url);
+    assert!(stored[1].url.ends_with("/again"), "{}", stored[1].url);
+    assert_eq!(stored[0].response_body.as_ref(), HTTP_BODY);
+    assert_eq!(stored[1].response_body.as_ref(), HTTP_BODY);
+    assert!(stored.iter().all(|row| !row.url.contains("/secret")));
+
     let _ = std::fs::remove_dir_all(dir);
 }

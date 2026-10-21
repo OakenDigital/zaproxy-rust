@@ -26,7 +26,9 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::Parser;
-use zap_proxy::{LoggingListener, Proxy, ProxyConfig};
+use zap_core::InMemoryHistory;
+use zap_proxy::{LoggingListener, Proxy, ProxyConfig, ProxyListener};
+use zap_store::{Session, SessionHistoryListener};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -55,6 +57,11 @@ struct Cli {
     /// Directory for ca.crt and ca.key. Also accepted as -ca-dir.
     #[arg(long = "ca-dir", default_value = "zapd-ca")]
     ca_dir: PathBuf,
+
+    /// SQLite session. History and site nodes reload from it on startup.
+    /// Also accepted as -session.
+    #[arg(long = "session", default_value = "zapd-session.sqlite")]
+    session: PathBuf,
 }
 
 fn normalize_args<I>(args: I) -> Vec<String>
@@ -68,6 +75,7 @@ where
             "-host" => "--host".to_string(),
             "-exclude" => "--exclude".to_string(),
             "-ca-dir" => "--ca-dir".to_string(),
+            "-session" => "--session".to_string(),
             other => other.to_string(),
         })
         .collect()
@@ -92,12 +100,32 @@ async fn main() -> ExitCode {
         eprintln!("zapd: invalid host {}", cli.host);
         return ExitCode::from(2);
     };
+    let session = match Session::open(&cli.session) {
+        Ok(session) => Arc::new(session),
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
+    let history = Arc::new(InMemoryHistory::new());
+    match session.history_rows() {
+        Ok(rows) => history.restore(rows),
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
+    let listeners: Vec<Arc<dyn ProxyListener>> = vec![
+        Arc::new(LoggingListener::new(0)),
+        Arc::new(SessionHistoryListener::new(Arc::clone(&session))),
+    ];
     let config = ProxyConfig {
         listen: SocketAddr::new(ip, cli.port),
         ca_dir: cli.ca_dir.clone(),
         exclude: cli.exclude,
-        listeners: vec![Arc::new(LoggingListener::new(0))],
+        listeners,
         extra_root_pems: Vec::new(),
+        history: Some(history),
     };
 
     let proxy = match Proxy::start(config).await {
@@ -114,6 +142,11 @@ async fn main() -> ExitCode {
         proxy.local_addr()
     );
     println!("CA certificate: {}", cli.ca_dir.join("ca.crt").display());
+    println!(
+        "Session: {} ({} history rows)",
+        cli.session.display(),
+        proxy.history().len()
+    );
     println!("Not an official OWASP ZAP build.");
 
     if tokio::signal::ctrl_c().await.is_err() {
@@ -125,7 +158,9 @@ async fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_args;
+    use super::{normalize_args, Cli};
+    use clap::Parser;
+    use std::path::PathBuf;
 
     #[test]
     fn single_dash_flags_become_long_flags() {
@@ -140,6 +175,8 @@ mod tests {
             ".*".to_string(),
             "-ca-dir".to_string(),
             "certs".to_string(),
+            "-session".to_string(),
+            "mine.sqlite".to_string(),
         ]);
         assert_eq!(
             args,
@@ -154,7 +191,26 @@ mod tests {
                 ".*",
                 "--ca-dir",
                 "certs",
+                "--session",
+                "mine.sqlite",
             ]
         );
+    }
+
+    #[test]
+    fn session_flag_sets_the_sqlite_path() {
+        let cli = Cli::parse_from(normalize_args([
+            "zapd".to_string(),
+            "-session".to_string(),
+            "mine.sqlite".to_string(),
+        ]));
+        assert_eq!(cli.session, PathBuf::from("mine.sqlite"));
+        assert!(!cli.version);
+    }
+
+    #[test]
+    fn default_session_path_is_in_the_working_directory() {
+        let cli = Cli::parse_from(["zapd"]);
+        assert_eq!(cli.session, PathBuf::from("zapd-session.sqlite"));
     }
 }

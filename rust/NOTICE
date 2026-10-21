@@ -23,8 +23,9 @@ The Java core this tree derives from is:
     Copyright © 2010-2024 ZAP Development Team
 
 ZAP is a fork of Paros Proxy 3.2.13, developed by Chinotec Technologies Company
-and licensed under the Clarified Artistic License. Proxy, HTTP sender, and
-listener behavior in this tree follows that lineage. See ../LEGALNOTICE.md.
+and licensed under the Clarified Artistic License. Proxy, HTTP sender,
+listener, and session-database behavior in this tree follows that lineage.
+See ../LEGALNOTICE.md.
 
 In October 2014, imported GPL files in the Java tree were relicensed to
 Apache-2.0 with permission from the authors. Some Paros files in the Java tree

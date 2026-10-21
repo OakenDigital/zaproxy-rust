@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+mod phase5;
 mod scripts;
 
 use std::net::{IpAddr, SocketAddr};
@@ -179,6 +180,10 @@ async fn main() -> ExitCode {
     println!("API: http://zap/JSON/ via this proxy");
     println!("Passive scan: X-Content-Type-Options (plugin 10021)");
     scripts::log_startup();
+    // PHASE-5: context include/exclude regexes, form and JSON authentication,
+    // cookie session management, and send-as-user. The line is printed from
+    // `phase5` so this function stays the proxy startup path.
+    println!("{}", phase5::startup_line());
     println!("Not an official OWASP ZAP build.");
 
     tokio::select! {

@@ -25,6 +25,8 @@
 
 #![forbid(unsafe_code)]
 
+mod session;
+
 use std::io::Cursor;
 use std::time::Duration;
 
@@ -39,6 +41,8 @@ use rustls::pki_types::CertificateDer;
 use rustls::{ClientConfig, RootCertStore};
 use thiserror::Error;
 use zap_core::{headers_for_forwarding, HttpMessage, HttpResponse};
+
+pub use session::SessionManagement;
 
 /// Header names this client may add. Ignore them when diffing headers.
 /// Status and body are not rewritten.
@@ -133,6 +137,37 @@ impl UpstreamClient {
             body,
         })
     }
+
+    /// Send `msg` as `session`.
+    ///
+    /// When the session still needs authentication, this GETs the login page
+    /// (if the session has one), POSTs the login with the cookie header cleared
+    /// and then replaced from the session, and records `Set-Cookie`. The
+    /// follow-up request is then rewritten to that cookie session and sent.
+    /// A later call does not log in again.
+    pub async fn send_as_user(
+        &self,
+        msg: &mut HttpMessage,
+        session: &mut dyn SessionManagement,
+    ) -> Result<HttpResponse, UpstreamError> {
+        if session.needs_authentication() {
+            if let Some(mut page) = session.login_page_request() {
+                let response = self.send(&mut page).await?;
+                session.extract_web_session(&page.url(), &response);
+            }
+            let mut login = session.login_request();
+            login.headers.remove(http::header::COOKIE);
+            session.process_message_to_match_session(&mut login);
+            let response = self.send(&mut login).await?;
+            session.extract_web_session(&login.url(), &response);
+            session.note_authenticated();
+        }
+        session.process_message_to_match_session(msg);
+        let response = self.send(msg).await?;
+        session.extract_web_session(&msg.url(), &response);
+        msg.response = Some(response.clone());
+        Ok(response)
+    }
 }
 
 /// Install the ring crypto provider once. Later calls are ignored.
@@ -192,5 +227,133 @@ mod tests {
             headers.get(http::header::VIA).unwrap().to_str().unwrap(),
             "1.1 other, 1.1 zapd"
         );
+    }
+}
+
+#[cfg(test)]
+mod send_as_user_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use bytes::Bytes;
+    use http::{HeaderMap, HeaderValue, Method, StatusCode};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use zap_core::{HttpMessage, HttpResponse};
+
+    use super::{SessionManagement, UpstreamClient};
+
+    struct CountingSession {
+        cookie: Option<String>,
+        login_url: String,
+    }
+
+    impl SessionManagement for CountingSession {
+        fn needs_authentication(&self) -> bool {
+            self.cookie.is_none()
+        }
+
+        fn login_page_request(&self) -> Option<HttpMessage> {
+            None
+        }
+
+        fn login_request(&self) -> HttpMessage {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                http::header::CONTENT_TYPE,
+                HeaderValue::from_static("text/plain"),
+            );
+            HttpMessage {
+                method: Method::POST,
+                uri: self.login_url.parse().unwrap(),
+                headers,
+                body: Bytes::from_static(b"login"),
+                response: None,
+            }
+        }
+
+        fn process_message_to_match_session(&self, msg: &mut HttpMessage) {
+            if let Some(cookie) = &self.cookie {
+                msg.headers
+                    .insert(http::header::COOKIE, HeaderValue::from_str(cookie).unwrap());
+            }
+        }
+
+        fn extract_web_session(&mut self, _request_url: &str, response: &HttpResponse) {
+            if let Some(value) = response.headers.get(http::header::SET_COOKIE) {
+                self.cookie = Some(value.to_str().unwrap().to_string());
+            }
+        }
+
+        fn note_authenticated(&mut self) {}
+    }
+
+    async fn spawn_app() -> (std::net::SocketAddr, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let posts = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&posts);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut buf = vec![0_u8; 4096];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                let text = String::from_utf8_lossy(&buf[..n]);
+                let line = text.lines().next().unwrap_or("");
+                let method = line.split_whitespace().next().unwrap_or("");
+                let (status, body, extra) = if method == "POST" {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    (200, "ok", "Set-Cookie: session=abc\r\n")
+                } else if text.to_ascii_lowercase().contains("cookie: session=abc") {
+                    (200, "secret", "")
+                } else {
+                    (401, "anon", "")
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        (addr, posts)
+    }
+
+    #[tokio::test]
+    async fn send_as_user_logs_in_once_then_sends_the_follow_up() {
+        let (addr, posts) = spawn_app().await;
+        let client = UpstreamClient::new(&[]).unwrap();
+        let mut session = CountingSession {
+            cookie: None,
+            login_url: format!("http://{addr}/login"),
+        };
+        let private_url = format!("http://{addr}/private");
+        let mut first = HttpMessage {
+            method: Method::GET,
+            uri: private_url.parse().unwrap(),
+            headers: HeaderMap::new(),
+            body: Bytes::new(),
+            response: None,
+        };
+        let response = client.send_as_user(&mut first, &mut session).await.unwrap();
+        assert_eq!(response.status, StatusCode::OK);
+        assert_eq!(response.body.as_ref(), b"secret");
+        assert_eq!(posts.load(Ordering::SeqCst), 1);
+
+        let mut second = HttpMessage {
+            method: Method::GET,
+            uri: private_url.parse().unwrap(),
+            headers: HeaderMap::new(),
+            body: Bytes::new(),
+            response: None,
+        };
+        let again = client
+            .send_as_user(&mut second, &mut session)
+            .await
+            .unwrap();
+        assert_eq!(again.body.as_ref(), b"secret");
+        assert_eq!(posts.load(Ordering::SeqCst), 1);
     }
 }

@@ -8,8 +8,8 @@ memory and in a SQLite session. An exclude regex skips that row. Listeners run
 in order and may mutate a message, supply a response (the origin is not
 contacted), or stop later listeners. After history is recorded, a passive-scan
 queue runs one header rule: X-Content-Type-Options (plugin id 10021). A
-JavaScript host runs `proxy` and `httpsender` scripts. There is no
-authentication and no active scan.
+JavaScript host runs `proxy` and `httpsender` scripts. Form and JSON logins
+send a follow-up request as a user. There is no active scan.
 
 The Java tree in the repository root is unchanged and remains the behavioral
 spec.
@@ -88,6 +88,16 @@ fails while evaluating `Java.type("java.lang.Integer")`,
 `Java.type("org.zaproxy.zap.extension.alert.ExtensionAlert")`, and
 `Java.type("org.parosproxy.paros.model.HistoryReference")`. It also reads
 `control` and `model`. The hooks exist; that script never reaches them.
+
+## Authentication
+
+Context include and exclude regexes use the same full-string, ASCII
+case-insensitive match as ZAP, after the query string is removed. A ZAP
+context file (`<incregexes>` and `<excregexes>`) loads that config. Form login
+posts `application/x-www-form-urlencoded` and JSON login posts
+`application/json`, replacing `{%username%}` and `{%password%}`. Cookie session
+management keeps `Set-Cookie` from the login response. `send-as-user` on the
+HTTP client logs in once, then sends the follow-up request with those cookies.
 
 ## Listeners
 

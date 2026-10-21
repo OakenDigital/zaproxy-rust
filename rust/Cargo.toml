@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = ["zap-core", "zap-http", "zap-proxy", "zapd"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+rust-version = "1.88"
+
+[workspace.dependencies]
+bytes = "1"
+clap = { version = "4.5", features = ["derive"] }
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1.5", features = ["http1", "client", "server"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "native-tokio", "ring", "tls12"] }
+hyper-util = { version = "0.1.10", features = ["tokio", "client-legacy", "http1"] }
+rcgen = { version = "=0.14.7", default-features = false, features = ["crypto", "pem", "ring", "x509-parser"] }
+regex = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pemfile = "2"
+thiserror = "1"
+tokio = { version = "1.42", features = ["macros", "net", "rt-multi-thread", "io-util", "sync", "time", "signal"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+webpki-roots = "0.26"
+zap-core = { path = "zap-core" }
+zap-http = { path = "zap-http" }
+zap-proxy = { path = "zap-proxy" }

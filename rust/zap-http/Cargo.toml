@@ -1,0 +1,22 @@
+[package]
+name = "zap-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Outbound HTTP/1.1 client used by the zapd proxy (hyper and rustls)."
+
+[dependencies]
+bytes.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-rustls.workspace = true
+hyper-util.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+webpki-roots.workspace = true
+zap-core.workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "zapd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Daemon for the zapd intercepting proxy. Not an official OWASP ZAP build."
+
+[[bin]]
+name = "zapd"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+zap-core.workspace = true
+zap-proxy.workspace = true

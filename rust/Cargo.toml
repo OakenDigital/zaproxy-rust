@@ -27,6 +27,9 @@ members = [
     # The sample rule is not named by zapd. Java .zap files are not loaded.
     "zap-addon",
     "zap-addon-sample",
+    # PHASE-10: optional desktop (sites, history, request/response, alerts, break).
+    # zapd does not depend on this crate, so the daemon still runs without the UI.
+    "zap-desktop",
     "zapd",
 ]
 
@@ -67,6 +70,8 @@ zap-addon-sample = { path = "zap-addon-sample" }
 zap-ascan = { path = "zap-ascan" }
 zap-auth = { path = "zap-auth" }
 zap-core = { path = "zap-core" }
+# PHASE-10: optional desktop UI. zapd does not depend on this crate.
+zap-desktop = { path = "zap-desktop" }
 zap-http = { path = "zap-http" }
 zap-proxy = { path = "zap-proxy" }
 zap-pscan = { path = "zap-pscan" }

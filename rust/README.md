@@ -7,8 +7,9 @@ certificate authority it writes to disk. Each completed exchange is one row in
 memory and in a SQLite session. An exclude regex skips that row. Listeners run
 in order and may mutate a message, supply a response (the origin is not
 contacted), or stop later listeners. After history is recorded, a passive-scan
-queue runs one header rule: X-Content-Type-Options (plugin id 10021). There is
-no authentication and no active scan.
+queue runs one header rule: X-Content-Type-Options (plugin id 10021). A
+JavaScript host runs `proxy` and `httpsender` scripts. There is no
+authentication and no active scan.
 
 The Java tree in the repository root is unchanged and remains the behavioral
 spec.
@@ -67,6 +68,26 @@ one alert: risk low (1), confidence medium (2), CWE 693, WASC 15, param
 `x-content-type-options`, and the request URL. At the default threshold
 (medium), client errors, server errors, and redirects are skipped. Threshold
 OFF disables the rule and raises nothing.
+
+## Scripts
+
+The engine is Boa. Script types are `proxy` and `httpsender`, with the ZAP
+hook names `proxyRequest`, `proxyResponse`, `sendingRequest`, and
+`responseReceived`. A sample in `zap-script/scripts/rewrite-headers.js` sets
+`X-Script-Request` on the way out and `X-Script-Response` on the way back
+(`httpsender` uses `X-Sender-Request` and `X-Sender-Response`). The message
+object is `url`, `method`, `requestHeader`, `setRequestHeader`,
+`responseHeader`, `setResponseHeader`, `responseStatus`, `requestBody`,
+`responseBody`, and `setResponse`.
+
+`AlertOnHttpResponseCodeErrors.js` (the Docker packaged-scan httpsender
+script) does not run. Boa has no Nashorn/Graal `Java.type`, so the script
+fails while evaluating `Java.type("java.lang.Integer")`,
+`Java.type("java.util.regex.Pattern")`,
+`Java.type("org.parosproxy.paros.core.scanner.Alert")`,
+`Java.type("org.zaproxy.zap.extension.alert.ExtensionAlert")`, and
+`Java.type("org.parosproxy.paros.model.HistoryReference")`. It also reads
+`control` and `model`. The hooks exist; that script never reaches them.
 
 ## Listeners
 

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<configuration>
+    <context>
+        <name>phase5</name>
+        <desc/>
+        <inscope>true</inscope>
+        <incregexes>https://www.example.com/.*</incregexes>
+        <excregexes>https://www.example.com/logout</excregexes>
+        <excregexes>https://www.example.com/status/.*</excregexes>
+        <session>
+            <type>0</type>
+        </session>
+    </context>
+</configuration>

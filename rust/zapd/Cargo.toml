@@ -17,6 +17,7 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 zap-api.workspace = true
+zap-auth.workspace = true
 zap-core.workspace = true
 zap-proxy.workspace = true
 zap-pscan.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "zap-auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Context include/exclude regexes, form and JSON authentication, and cookie sessions."
+
+[dependencies]
+bytes.workspace = true
+http.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+zap-core.workspace = true
+zap-http.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

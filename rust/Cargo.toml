@@ -8,7 +8,11 @@ resolver = "2"
 # `Java.type` for java.lang.Integer, java.util.regex.Pattern,
 # org.parosproxy.paros.core.scanner.Alert, ExtensionAlert, and
 # HistoryReference, and it reads the `control` and `model` globals.
-members = ["zap-core", "zap-http", "zap-proxy", "zap-store", "zap-api", "zap-pscan", "zap-script", "zapd"]
+# PHASE-5: zap-auth is context include/exclude regexes, form and JSON
+# authentication, and cookie session management. Send-as-user is
+# UpstreamClient::send_as_user in zap-http. This phase does not include
+# the active scanner.
+members = ["zap-core", "zap-http", "zap-proxy", "zap-store", "zap-api", "zap-pscan", "zap-script", "zap-auth", "zapd"]
 
 [workspace.package]
 version = "0.1.0"
@@ -39,6 +43,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 webpki-roots = "0.26"
 zap-api = { path = "zap-api" }
+zap-auth = { path = "zap-auth" }
 zap-core = { path = "zap-core" }
 zap-http = { path = "zap-http" }
 zap-proxy = { path = "zap-proxy" }

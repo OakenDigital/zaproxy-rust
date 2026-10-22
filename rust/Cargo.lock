@@ -2248,6 +2248,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "zap-auth"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "http",
+ "regex",
+ "thiserror 1.0.69",
+ "tokio",
+ "zap-core",
+ "zap-http",
+]
+
+[[package]]
 name = "zap-core"
 version = "0.1.0"
 dependencies = [
@@ -2346,6 +2359,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zap-api",
+ "zap-auth",
  "zap-core",
  "zap-proxy",
  "zap-pscan",

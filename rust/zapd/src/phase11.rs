@@ -33,7 +33,7 @@ use serde_json::{json, Value};
 use zap_auth::Context;
 use zap_core::{HttpMessage, HttpResponse, ProxyListener};
 use zap_proxy::EarlyOverride;
-use zap_pscan::{PassiveScanListener, PLUGIN_ID};
+use zap_pscan::{PassiveScanListener, PassiveScanner, PLUGIN_ID};
 use zap_spider::{DefaultSender, FetchResponse, Spider, SpiderSender};
 use zap_store::Session;
 
@@ -47,12 +47,20 @@ pub struct PackagedScan {
     next_id: AtomicU64,
     /// Phase 5 context. When set, a crawl leaves out-of-context URLs unfetched.
     context: Arc<Mutex<Option<Context>>>,
+    extra: Vec<ListedScanner>,
+}
+
+struct ListedScanner {
+    id: i32,
+    name: String,
+    enabled: bool,
 }
 
 struct RecordingSender {
     inner: DefaultSender,
     session: Arc<Session>,
     pscan: Arc<PassiveScanListener>,
+    extra: Vec<Arc<dyn PassiveScanner>>,
 }
 
 /// Sets the scan to finished when the crawl thread ends, including on panic.
@@ -77,6 +85,16 @@ impl SpiderSender for RecordingSender {
             .record_exchange(&message)
             .map_err(|err| err.to_string())?;
         let _ = ProxyListener::on_http_response_receive(self.pscan.as_ref(), &mut message);
+        for rule in &self.extra {
+            if !rule.is_enabled() {
+                continue;
+            }
+            for alert in rule.scan_http_response(&message) {
+                if let Err(err) = self.session.insert_alert(&alert) {
+                    tracing::error!(%err, plugin_id = alert.plugin_id, "packaged passive alert write failed");
+                }
+            }
+        }
         Ok(response)
     }
 }
@@ -84,12 +102,22 @@ impl SpiderSender for RecordingSender {
 /// Passive listener shared with the proxy, plus the packaged-scan API.
 pub fn start(
     session: Arc<Session>,
+    extra: Vec<Arc<dyn PassiveScanner>>,
 ) -> Result<(Arc<PackagedScan>, Arc<PassiveScanListener>), String> {
+    let listed = extra
+        .iter()
+        .map(|rule| ListedScanner {
+            id: rule.plugin_id(),
+            name: rule.name().to_string(),
+            enabled: rule.is_enabled(),
+        })
+        .collect();
     let pscan = Arc::new(PassiveScanListener::new(Arc::clone(&session)));
     let sender = Arc::new(RecordingSender {
         inner: DefaultSender::from_current()?,
         session,
         pscan: Arc::clone(&pscan),
+        extra,
     });
     let spider_sender: Arc<dyn SpiderSender> = sender.clone();
     let packaged = Arc::new(PackagedScan {
@@ -98,6 +126,7 @@ pub fn start(
         scans: Arc::new(Mutex::new(HashMap::new())),
         next_id: AtomicU64::new(0),
         context: Arc::new(Mutex::new(None)),
+        extra: listed,
     });
     Ok((packaged, pscan))
 }
@@ -112,9 +141,9 @@ pub fn chain(inner: EarlyOverride, packaged: Arc<PackagedScan>) -> EarlyOverride
     })
 }
 
-/// One line for the daemon log. Only the ported baseline rule is named.
+/// One line for the daemon log. Add-on rules are not named here.
 pub fn startup_line() -> &'static str {
-    "Packaged scan: zapd daemon, no JDK; baseline rules in scope: 10021"
+    "Packaged scan: zapd daemon, no JDK; baseline rules in scope: 10021 and installed add-on passive rules"
 }
 
 impl PackagedScan {
@@ -221,13 +250,19 @@ impl PackagedScan {
     }
 
     fn scanners(&self) -> Value {
-        json!({
-            "scanners": [{
-                "id": PLUGIN_ID.to_string(),
-                "name": RULE_NAME,
-                "enabled": "true",
-            }]
-        })
+        let mut scanners = vec![json!({
+            "id": PLUGIN_ID.to_string(),
+            "name": RULE_NAME,
+            "enabled": "true",
+        })];
+        for rule in &self.extra {
+            scanners.push(json!({
+                "id": rule.id.to_string(),
+                "name": rule.name,
+                "enabled": if rule.enabled { "true" } else { "false" },
+            }));
+        }
+        json!({ "scanners": scanners })
     }
 
     fn access_url(&self, params: &HashMap<String, String>) -> Result<Value, ApiError> {
@@ -482,7 +517,7 @@ mod tests {
     #[tokio::test]
     async fn packaged_scan_lists_only_the_ported_passive_rule() {
         let session = Arc::new(Session::open(temp_db()).unwrap());
-        let (packaged, _) = start(session).unwrap();
+        let (packaged, _) = start(session, Vec::new()).unwrap();
 
         let mut scanners = message("http://zap/JSON/pscan/view/scanners/");
         assert!(packaged.handle(&mut scanners));

@@ -33,9 +33,11 @@ mod threshold;
 
 pub use listener::PassiveScanListener;
 pub use queue::{PassiveScanQueue, PASSIVE_SCAN_LISTENER_ORDER};
-pub use rules::x_content_type_options::{XContentTypeOptionsScanRule, HEADER_NAME, PLUGIN_ID};
+pub use rules::x_content_type_options::{
+    XContentTypeOptionsScanRule, HEADER_NAME, PLUGIN_ID, RULE_NAME,
+};
 pub use scanner::PassiveScanner;
-pub use threshold::AlertThreshold;
+pub use threshold::{AlertThreshold, ScannerState};
 
 #[cfg(test)]
 mod tests;

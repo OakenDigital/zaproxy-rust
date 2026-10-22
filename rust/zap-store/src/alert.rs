@@ -93,6 +93,9 @@ impl Confidence {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewAlert {
     pub plugin_id: i32,
+    /// Alert name. The session table does not store it. Rules whose alert
+    /// name differs from the rule name set this field.
+    pub name: String,
     pub risk: i32,
     pub confidence: i32,
     pub cwe_id: i32,

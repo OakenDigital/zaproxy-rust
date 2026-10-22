@@ -237,6 +237,7 @@ fn alert_list_and_view_round_trip_zap_fields() {
     session
         .insert_alert(&NewAlert {
             plugin_id: 40012,
+            name: String::new(),
             risk: Risk::Medium.code(),
             confidence: Confidence::High.code(),
             cwe_id: 79,
@@ -248,6 +249,7 @@ fn alert_list_and_view_round_trip_zap_fields() {
     session
         .insert_alert(&NewAlert {
             plugin_id: 0,
+            name: String::new(),
             risk: Risk::Informational.code(),
             confidence: Confidence::FalsePositive.code(),
             cwe_id: UNKNOWN_CWE_ID,
@@ -259,6 +261,7 @@ fn alert_list_and_view_round_trip_zap_fields() {
     session
         .insert_alert(&NewAlert {
             plugin_id: 40018,
+            name: String::new(),
             risk: Risk::High.code(),
             confidence: Confidence::UserConfirmed.code(),
             cwe_id: 89,
@@ -383,6 +386,7 @@ fn core_urls_are_plain_strings_and_core_alerts_are_objects() {
     session
         .insert_alert(&NewAlert {
             plugin_id: 10021,
+            name: String::new(),
             risk: Risk::Low.code(),
             confidence: Confidence::Medium.code(),
             cwe_id: 693,

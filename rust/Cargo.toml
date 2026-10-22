@@ -27,6 +27,10 @@ members = [
     # The sample rule is not named by zapd. Java .zap files are not loaded.
     "zap-addon",
     "zap-addon-sample",
+    # Scan rules from pscanrules v70 and ascanrules v78. zapd loads the
+    # bundled manifests and does not name the rules. 10021, 40003, and
+    # 90021 stay in zap-pscan and zap-ascan.
+    "zap-scanrules",
     # PHASE-9: traditional spider (spider 0.18.0). AJAX spider is not included.
     "zap-spider",
     # PHASE-10: optional desktop (sites, history, request/response, alerts, break).
@@ -86,4 +90,5 @@ zap-http = { path = "zap-http" }
 zap-proxy = { path = "zap-proxy" }
 zap-pscan = { path = "zap-pscan" }
 zap-script = { path = "zap-script" }
+zap-scanrules = { path = "zap-scanrules" }
 zap-store = { path = "zap-store" }

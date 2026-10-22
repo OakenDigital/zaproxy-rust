@@ -37,7 +37,7 @@ mod sender;
 mod variant;
 
 pub use api::ActiveScanService;
-pub use context::{ActivePlugin, RaisedAlert, SendError};
+pub use context::{ActivePlugin, RaisedAlert, ScanContext, SendError};
 pub use engine::{host_key, Engine, ScanOptions};
 pub use policy::{AlertThreshold, AttackStrength, Policy};
 pub use rules::{

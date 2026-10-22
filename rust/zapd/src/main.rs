@@ -170,9 +170,18 @@ async fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // PHASE-8 first so packaged scan and active scan can use add-on rules
+    // without this file naming them.
+    let addons = match phase8::load(&cli.addon_dir) {
+        Ok(addons) => Arc::new(addons),
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
     // PHASE-11: one passive listener for the proxy and for packaged-scan
-    // fetches. Baseline counts cover plugin 10021 only.
-    let (packaged, pscan) = match phase11::start(Arc::clone(&session)) {
+    // fetches. Baseline counts cover plugin 10021 and installed add-on rules.
+    let (packaged, pscan) = match phase11::start(Arc::clone(&session), addons.passive_rules()) {
         Ok(started) => started,
         Err(err) => {
             eprintln!("zapd: {err}");
@@ -190,13 +199,6 @@ async fn main() -> ExitCode {
     let (listeners, script_host) = scripts::register(listeners);
     // PHASE-8: add-ons from the directory. A copied manifest loads on restart.
     // This file does not name add-on rules. Java .zap files are not loaded.
-    let addons = match phase8::load(&cli.addon_dir) {
-        Ok(addons) => Arc::new(addons),
-        Err(err) => {
-            eprintln!("zapd: {err}");
-            return ExitCode::from(1);
-        }
-    };
     let listeners = phase8::register(listeners, Arc::clone(&addons), Arc::clone(&session));
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let on_shutdown = {
@@ -217,7 +219,7 @@ async fn main() -> ExitCode {
     ));
     // PHASE-6: active scan on the default sender. Routes live in phase6.rs.
     // No forced user and no login. Do not fold this into the core API crate.
-    let ascan = match phase6::start(Arc::clone(&session)) {
+    let ascan = match phase6::start(Arc::clone(&session), addons.active_plugins()) {
         Ok(ascan) => ascan,
         Err(err) => {
             eprintln!("zapd: {err}");

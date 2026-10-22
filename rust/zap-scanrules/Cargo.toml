@@ -1,0 +1,18 @@
+[package]
+name = "zap-scanrules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Header, cookie, and injection scan rules from the pinned ZAP add-ons."
+
+[dependencies]
+bytes.workspace = true
+http.workspace = true
+regex.workspace = true
+zap-addon.workspace = true
+zap-ascan.workspace = true
+zap-core.workspace = true
+zap-pscan.workspace = true
+zap-store.workspace = true

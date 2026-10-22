@@ -32,6 +32,7 @@ zap-http.workspace = true
 zap-proxy.workspace = true
 zap-pscan.workspace = true
 zap-script.workspace = true
+zap-scanrules.workspace = true
 zap-store.workspace = true
 # PHASE-11: packaged scan records spider and accessUrl responses.
 bytes.workspace = true

@@ -18,8 +18,9 @@
 
 //! Phase 11 image contents and baseline counts.
 //!
-//! The image file is checked for a JDK. `zap-baseline.py --autooff` is the
-//! oracle for plugin 10021. Rules that were not ported are not passes.
+//! The image file is checked for a JDK. `zap-baseline.py --autooff` counts
+//! plugin 10021 and the bundled add-on passive rules. Rules that were not
+//! ported are not listed, so they are not passes.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -193,18 +194,18 @@ fn baseline_counts_match_for_plugin_10021() {
     ensure_python_client();
     let missing = run_baseline(false, None);
     assert_eq!(missing.code, Some(2), "{}", missing.detail());
-    missing.assert_counts(0, 1, 0);
+    missing.assert_counts(0, 1, 8);
 
     let passed = run_baseline(true, None);
     assert_eq!(passed.code, Some(0), "{}", passed.detail());
-    passed.assert_counts(0, 0, 1);
+    passed.assert_counts(0, 0, 9);
 
     let failed = run_baseline(
         false,
         Some("10021\tFAIL\t(X-Content-Type-Options Header Missing)\n"),
     );
     assert_eq!(failed.code, Some(1), "{}", failed.detail());
-    failed.assert_counts(1, 0, 0);
+    failed.assert_counts(1, 0, 8);
 }
 
 struct Baseline {

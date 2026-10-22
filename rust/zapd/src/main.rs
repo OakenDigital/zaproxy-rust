@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+mod controls;
 mod phase11;
 mod phase5;
 mod phase6;
@@ -76,6 +77,38 @@ struct Cli {
     /// Directory of add-on manifests. Also accepted as -addon-dir.
     #[arg(long = "addon-dir", default_value = "zapd-addons")]
     addon_dir: PathBuf,
+
+    /// Traditional spider seed URL. Repeat to crawl another seed.
+    /// Also accepted as -spider. Out-of-context URLs are not fetched.
+    /// The AJAX spider is not included.
+    #[arg(long = "spider")]
+    spider_seed: Vec<String>,
+
+    /// JavaScript file for the Boa proxy and httpsender host.
+    /// Repeat to load another file. Also accepted as -script.
+    #[arg(long = "script")]
+    script: Vec<PathBuf>,
+
+    /// ZAP context file. Also accepted as -context.
+    #[arg(long = "context")]
+    context: Option<PathBuf>,
+
+    /// Display name for send-as-user. Also accepted as -auth-user.
+    #[arg(long = "auth-user", default_value = "user")]
+    auth_user: String,
+
+    /// Login username from the context file. Also accepted as -auth-username.
+    #[arg(long = "auth-username")]
+    auth_username: Option<String>,
+
+    /// Login password from the context file. Also accepted as -auth-password.
+    #[arg(long = "auth-password")]
+    auth_password: Option<String>,
+
+    /// URL to fetch with form or JSON login plus send-as-user.
+    /// Repeat to send another follow-up. Also accepted as -send-as-user.
+    #[arg(long = "send-as-user")]
+    send_as_user: Vec<String>,
 }
 
 fn normalize_args<I>(args: I) -> Vec<String>
@@ -91,6 +124,13 @@ where
             "-ca-dir" => "--ca-dir".to_string(),
             "-session" => "--session".to_string(),
             "-addon-dir" => "--addon-dir".to_string(),
+            "-spider" => "--spider".to_string(),
+            "-script" => "--script".to_string(),
+            "-context" => "--context".to_string(),
+            "-auth-user" => "--auth-user".to_string(),
+            "-auth-username" => "--auth-username".to_string(),
+            "-auth-password" => "--auth-password".to_string(),
+            "-send-as-user" => "--send-as-user".to_string(),
             other => other.to_string(),
         })
         .collect()
@@ -147,7 +187,7 @@ async fn main() -> ExitCode {
     // PHASE-7: Boa script host. Types `proxy` and `httpsender`.
     // Hooks: proxyRequest, proxyResponse, sendingRequest, responseReceived.
     // AlertOnHttpResponseCodeErrors.js does not run (`Java.type` needs a JVM).
-    let listeners = scripts::register(listeners);
+    let (listeners, script_host) = scripts::register(listeners);
     // PHASE-8: add-ons from the directory. A copied manifest loads on restart.
     // This file does not name add-on rules. Java .zap files are not loaded.
     let addons = match phase8::load(&cli.addon_dir) {
@@ -193,6 +233,26 @@ async fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    let controls = controls::EngineControls::new(script_host, Arc::clone(&packaged));
+    if let Some(path) = &cli.context {
+        if let Err(err) = controls.import_context_file(path) {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    }
+    if cli.auth_username.is_some() || cli.auth_password.is_some() {
+        controls.set_user(
+            &cli.auth_user,
+            cli.auth_username.as_deref().unwrap_or(""),
+            cli.auth_password.as_deref().unwrap_or(""),
+        );
+    }
+    for path in &cli.script {
+        if let Err(err) = controls.load_script_file(path, None) {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    }
     let config = ProxyConfig {
         listen: SocketAddr::new(ip, cli.port),
         ca_dir: cli.ca_dir.clone(),
@@ -201,7 +261,10 @@ async fn main() -> ExitCode {
         extra_root_pems: Vec::new(),
         history: Some(history),
         early_override: Some(phase8::chain(
-            phase11::chain(phase6::early_override(api, ascan), packaged),
+            controls::chain(
+                phase11::chain(phase6::early_override(api, ascan), packaged),
+                Arc::clone(&controls),
+            ),
             Arc::clone(&addons),
         )),
     };
@@ -240,7 +303,29 @@ async fn main() -> ExitCode {
     println!("{}", phase9::startup_line(&spider));
     // PHASE-11
     println!("{}", phase11::startup_line());
+    // META-ENGINE
+    println!("{}", controls::startup_line());
     println!("Not an official OWASP ZAP build.");
+
+    for seed in &cli.spider_seed {
+        if let Err(err) = controls.start_spider(seed) {
+            eprintln!("zapd: {err}");
+            proxy.shutdown().await;
+            return ExitCode::from(1);
+        }
+    }
+    for url in &cli.send_as_user {
+        match controls.send_follow_up(url).await {
+            Ok(response) => {
+                println!("send-as-user {} {}", response.status.as_u16(), url);
+            }
+            Err(err) => {
+                eprintln!("zapd: {err}");
+                proxy.shutdown().await;
+                return ExitCode::from(1);
+            }
+        }
+    }
 
     tokio::select! {
         result = tokio::signal::ctrl_c() => {
@@ -312,6 +397,31 @@ mod tests {
         ]));
         assert_eq!(cli.session, PathBuf::from("mine.sqlite"));
         assert!(!cli.version);
+    }
+
+    #[test]
+    fn engine_control_flags_set_spider_script_and_context() {
+        let cli = Cli::parse_from(normalize_args([
+            "zapd".to_string(),
+            "-spider".to_string(),
+            "http://127.0.0.1/app/".to_string(),
+            "-script".to_string(),
+            "rewrite-headers.js".to_string(),
+            "-context".to_string(),
+            "app.context".to_string(),
+            "-auth-username".to_string(),
+            "alice".to_string(),
+            "-auth-password".to_string(),
+            "secret".to_string(),
+            "-send-as-user".to_string(),
+            "http://127.0.0.1/private".to_string(),
+        ]));
+        assert_eq!(cli.spider_seed, ["http://127.0.0.1/app/"]);
+        assert_eq!(cli.script, [PathBuf::from("rewrite-headers.js")]);
+        assert_eq!(cli.context, Some(PathBuf::from("app.context")));
+        assert_eq!(cli.auth_username.as_deref(), Some("alice"));
+        assert_eq!(cli.auth_password.as_deref(), Some("secret"));
+        assert_eq!(cli.send_as_user, ["http://127.0.0.1/private"]);
     }
 
     #[test]

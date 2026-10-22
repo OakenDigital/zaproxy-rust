@@ -28,12 +28,13 @@ use std::sync::Arc;
 use zap_proxy::ProxyListener;
 use zap_script::{ScriptHost, ScriptProxyListener, ALERT_ON_HTTP_RESPONSE_CODE_ERRORS_GAP};
 
-/// Append the script proxy listener. The host starts empty; tests and later
-/// callers load scripts onto a host they own.
-pub fn register(mut listeners: Vec<Arc<dyn ProxyListener>>) -> Vec<Arc<dyn ProxyListener>> {
+/// Append the script proxy listener and return the host so a file can be loaded later.
+pub fn register(
+    mut listeners: Vec<Arc<dyn ProxyListener>>,
+) -> (Vec<Arc<dyn ProxyListener>>, Arc<ScriptHost>) {
     let host = Arc::new(ScriptHost::new());
-    listeners.push(Arc::new(ScriptProxyListener::new(host)));
-    listeners
+    listeners.push(Arc::new(ScriptProxyListener::new(Arc::clone(&host))));
+    (listeners, host)
 }
 
 pub fn log_startup() {

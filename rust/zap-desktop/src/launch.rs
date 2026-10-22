@@ -29,6 +29,7 @@ use zap_pscan::PassiveScanListener;
 use zap_store::{Session, SessionHistoryListener};
 
 use crate::breakpoint::{BreakListener, Breakpoint};
+use crate::scans::ScanControls;
 use crate::ui::{serve, UiState};
 
 /// Addresses and files for one desktop process.
@@ -78,10 +79,15 @@ impl RunningDesktop {
 pub async fn launch(config: DesktopConfig) -> Result<RunningDesktop, String> {
     let session = Arc::new(Session::open(&config.session_path).map_err(|err| err.to_string())?);
     let breakpoint = Arc::new(Breakpoint::new());
+    let pscan = Arc::new(PassiveScanListener::new(Arc::clone(&session)));
+    let scans = Arc::new(ScanControls::start(
+        Arc::clone(&session),
+        Arc::clone(&pscan),
+    )?);
     let listeners: Vec<Arc<dyn ProxyListener>> = vec![
         Arc::new(BreakListener::new(Arc::clone(&breakpoint))),
         Arc::new(SessionHistoryListener::new(Arc::clone(&session))),
-        Arc::new(PassiveScanListener::new(Arc::clone(&session))),
+        pscan,
     ];
     let proxy = Proxy::start(ProxyConfig {
         listen: config.proxy,
@@ -102,6 +108,7 @@ pub async fn launch(config: DesktopConfig) -> Result<RunningDesktop, String> {
         session: Arc::clone(&session),
         breakpoint: Arc::clone(&breakpoint),
         proxy_addr: proxy.local_addr(),
+        scans,
     });
     let (ui_shutdown, shutdown_rx) = watch::channel(false);
     let ui_task = tokio::spawn(async move {

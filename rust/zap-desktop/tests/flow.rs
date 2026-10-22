@@ -120,6 +120,10 @@ async fn ui_exchange(addr: SocketAddr, request: &str) -> (u16, String) {
 }
 
 async fn wait_json(ui: SocketAddr, needle: &str) -> String {
+    wait_json_for(ui, needle, Duration::from_secs(5)).await
+}
+
+async fn wait_json_for(ui: SocketAddr, needle: &str, limit: Duration) -> String {
     let start = Instant::now();
     loop {
         let (status, body) = ui_exchange(
@@ -131,11 +135,38 @@ async fn wait_json(ui: SocketAddr, needle: &str) -> String {
         if body.contains(needle) {
             return body;
         }
-        assert!(
-            start.elapsed() < Duration::from_secs(5),
-            "state stayed {body}"
-        );
+        assert!(start.elapsed() < limit, "state stayed {body}");
         tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn post_form(addr: SocketAddr, path: &str, body: &str) -> (u16, String) {
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: ui\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    ui_exchange(addr, &request).await
+}
+
+fn request_target(header: &[u8]) -> String {
+    let text = String::from_utf8_lossy(header);
+    text.split_whitespace().nth(1).unwrap_or("/").to_string()
+}
+
+fn reflected_tamper(header: &str) -> Option<String> {
+    let lower = header.to_ascii_lowercase();
+    let marker_at = lower
+        .find("tamper%3d")
+        .map(|index| index + "tamper%3d".len())
+        .or_else(|| lower.find("tamper=").map(|index| index + "tamper=".len()))?;
+    let token: String = header[marker_at..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_hexdigit() || *ch == '-')
+        .collect();
+    if token.len() < 8 {
+        None
+    } else {
+        Some(token)
     }
 }
 
@@ -331,6 +362,161 @@ async fn response_forward_keeps_an_edited_body() {
     assert_eq!(body, b"changed-body");
     let state = wait_json(ui, "changed-body").await;
     assert!(state.contains("\"pluginId\":10021"));
+    desktop.shutdown().await;
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn spider_from_the_page_shows_the_passive_alert() {
+    let dir = temp_dir("spider");
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            tokio::spawn(async move {
+                let mut header = Vec::new();
+                let mut byte = [0u8; 1];
+                loop {
+                    if socket.read_exact(&mut byte).await.is_err() {
+                        return;
+                    }
+                    header.push(byte[0]);
+                    if header.ends_with(b"\r\n\r\n") || header.len() > 8192 {
+                        break;
+                    }
+                }
+                let target = request_target(&header);
+                let path = target.split('?').next().unwrap_or("/");
+                let (status, content_type, body) = match path {
+                    "/" => (
+                        200,
+                        "text/html",
+                        &b"<html><body><a href=\"/page\">page</a> seed</body></html>"[..],
+                    ),
+                    "/page" => (200, "text/plain", &b"page body"[..]),
+                    _ => (404, "text/plain", &b""[..]),
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.write_all(body).await;
+            });
+        }
+    });
+    let desktop = launch(DesktopConfig {
+        ui: SocketAddr::from(([127, 0, 0, 1], 0)),
+        proxy: SocketAddr::from(([127, 0, 0, 1], 0)),
+        session_path: dir.join("session.sqlite"),
+        ca_dir: dir.join("ca"),
+    })
+    .await
+    .unwrap();
+    let ui = desktop.ui_addr();
+    let (status, page) = ui_exchange(
+        ui,
+        "GET / HTTP/1.1\r\nHost: ui\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(page.contains("Start spider"));
+    assert!(page.contains("action=\"/spider/scan\""));
+    assert!(page.contains("Spider: idle"));
+    let (status, body) = post_form(ui, "/spider/scan", "url=").await;
+    assert_eq!(status, 400, "{body}");
+    assert!(body.contains("url must be http or https"));
+    let seed = format!("http://127.0.0.1:{}/", origin.port());
+    let (status, _) = post_form(ui, "/spider/scan", &format!("url={seed}")).await;
+    assert_eq!(status, 303);
+    let state = wait_json_for(ui, "\"state\":\"finished\"", Duration::from_secs(15)).await;
+    assert!(state.contains("\"pluginId\":10021"), "{state}");
+    assert!(state.contains(&seed), "{state}");
+    let (status, page) = ui_exchange(
+        ui,
+        "GET / HTTP/1.1\r\nHost: ui\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(page.contains("plugin 10021"));
+    assert!(page.contains(&seed));
+    assert!(page.contains("<h2>Alerts</h2>"));
+    desktop.shutdown().await;
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn active_scan_from_the_page_shows_the_alert() {
+    let dir = temp_dir("ascan");
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            tokio::spawn(async move {
+                let mut header = Vec::new();
+                let mut byte = [0u8; 1];
+                loop {
+                    if socket.read_exact(&mut byte).await.is_err() {
+                        return;
+                    }
+                    header.push(byte[0]);
+                    if header.ends_with(b"\r\n\r\n") || header.len() > 16384 {
+                        break;
+                    }
+                }
+                let text = String::from_utf8_lossy(&header);
+                let cookie = reflected_tamper(&text)
+                    .map(|token| format!("Set-Cookie: Tamper={token}\r\n"))
+                    .unwrap_or_default();
+                let body = b"ok";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\n{cookie}Content-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.write_all(body).await;
+            });
+        }
+    });
+    let desktop = launch(DesktopConfig {
+        ui: SocketAddr::from(([127, 0, 0, 1], 0)),
+        proxy: SocketAddr::from(([127, 0, 0, 1], 0)),
+        session_path: dir.join("session.sqlite"),
+        ca_dir: dir.join("ca"),
+    })
+    .await
+    .unwrap();
+    let ui = desktop.ui_addr();
+    let (status, page) = ui_exchange(
+        ui,
+        "GET / HTTP/1.1\r\nHost: ui\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(page.contains("Start active scan"));
+    assert!(page.contains("action=\"/ascan/scan\""));
+    assert!(page.contains("Active scan: idle"));
+    let target = format!("http://127.0.0.1:{}/scan?years=1", origin.port());
+    let (status, _) = post_form(ui, "/ascan/scan", &format!("url={target}")).await;
+    assert_eq!(status, 303);
+    let state = wait_json_for(ui, "\"pluginId\":40003", Duration::from_secs(30)).await;
+    assert!(state.contains(&target) || state.contains("127.0.0.1"));
+    assert!(state.contains("\"param\":\"years\""));
+    let (status, page) = ui_exchange(
+        ui,
+        "GET / HTTP/1.1\r\nHost: ui\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(page.contains("plugin 40003"));
+    assert!(page.contains("param years"));
+    assert!(page.contains("<h2>Alerts</h2>"));
     desktop.shutdown().await;
     let _ = std::fs::remove_dir_all(dir);
 }

@@ -27,6 +27,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 
 use crate::breakpoint::Breakpoint;
+use crate::scans::ScanControls;
 use crate::view::{sites_text, snapshot, Snapshot};
 use zap_store::Session;
 
@@ -35,6 +36,7 @@ pub struct UiState {
     pub session: Arc<Session>,
     pub breakpoint: Arc<Breakpoint>,
     pub proxy_addr: SocketAddr,
+    pub scans: Arc<ScanControls>,
 }
 
 pub async fn serve(
@@ -93,7 +95,7 @@ fn respond(request: &Incoming, state: &UiState) -> Vec<u8> {
                 http_response(
                     200,
                     "application/json; charset=utf-8",
-                    serde_json::to_vec(&state_json(&shot, state.proxy_addr)).unwrap_or_default(),
+                    serde_json::to_vec(&state_json(&shot, state)).unwrap_or_default(),
                 )
             })
             .unwrap_or_else(|err| {
@@ -139,7 +141,33 @@ fn respond(request: &Incoming, state: &UiState) -> Vec<u8> {
                 ),
             }
         }
+        ("POST", "/spider/scan") => start_spider(state, &request.body),
+        ("POST", "/ascan/scan") => start_active_scan(state, &request.body),
         _ => http_response(404, "text/plain; charset=utf-8", b"not found\n".to_vec()),
+    }
+}
+
+fn start_spider(state: &UiState, body: &str) -> Vec<u8> {
+    start_job(body, |url| state.scans.start_spider(url))
+}
+
+fn start_active_scan(state: &UiState, body: &str) -> Vec<u8> {
+    start_job(body, |url| state.scans.start_active_scan(url))
+}
+
+fn start_job(body: &str, start: impl FnOnce(&str) -> Result<(), String>) -> Vec<u8> {
+    let url = form_pairs(body)
+        .into_iter()
+        .find(|(key, _)| key == "url")
+        .map(|(_, value)| value)
+        .unwrap_or_default();
+    match start(&url) {
+        Ok(()) => redirect("/"),
+        Err(err) => http_response(
+            400,
+            "text/plain; charset=utf-8",
+            format!("{err}\n").into_bytes(),
+        ),
     }
 }
 
@@ -164,12 +192,26 @@ fn page(state: &UiState, selected: Option<u64>) -> Result<String, Vec<u8>> {
             format!("session: {err}\n").into_bytes(),
         )
     })?;
-    Ok(render_page(&shot, state.proxy_addr, selected))
+    Ok(render_page(&shot, state, selected))
 }
 
-fn state_json(shot: &Snapshot, proxy: SocketAddr) -> Value {
+fn state_json(shot: &Snapshot, state: &UiState) -> Value {
+    let spider = state.scans.spider();
+    let active = state.scans.active_scan();
     json!({
-        "proxy": proxy.to_string(),
+        "proxy": state.proxy_addr.to_string(),
+        "spider": {
+            "state": spider.state,
+            "url": spider.url,
+            "detail": spider.detail,
+            "line": spider.line("Spider"),
+        },
+        "activeScan": {
+            "state": active.state,
+            "url": active.url,
+            "detail": active.detail,
+            "line": active.line("Active scan"),
+        },
         "requestBreak": shot.request_break,
         "responseBreak": shot.response_break,
         "sites": sites_text(&shot.sites),
@@ -204,7 +246,10 @@ fn state_json(shot: &Snapshot, proxy: SocketAddr) -> Value {
     })
 }
 
-fn render_page(shot: &Snapshot, proxy: SocketAddr, selected: Option<u64>) -> String {
+fn render_page(shot: &Snapshot, state: &UiState, selected: Option<u64>) -> String {
+    let proxy = state.proxy_addr;
+    let spider_line = escape(&state.scans.spider().line("Spider"));
+    let ascan_line = escape(&state.scans.active_scan().line("Active scan"));
     let request = shot
         .message
         .as_ref()
@@ -275,6 +320,9 @@ textarea {{ min-height: 8rem; }}
 .cols {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
 button {{ margin-right: 8px; }}
 a {{ color: #9a3412; }}
+#controls {{ margin: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
+#controls input {{ width: 100%; box-sizing: border-box; margin: 4px 0 8px; }}
+#controls label {{ display: block; }}
 </style>
 </head>
 <body>
@@ -287,6 +335,24 @@ a {{ color: #9a3412; }}
 <a href="/">Refresh</a>
 </p>
 </header>
+<section id="controls">
+<div>
+<h2>Spider</h2>
+<form method="post" action="/spider/scan">
+<label>Seed URL<input name="url" value="" autocomplete="off"></label>
+<button type="submit">Start spider</button>
+</form>
+<p id="spider-status">{spider_line}</p>
+</div>
+<div>
+<h2>Active scan</h2>
+<form method="post" action="/ascan/scan">
+<label>URL<input name="url" value="" autocomplete="off"></label>
+<button type="submit">Start active scan</button>
+</form>
+<p id="ascan-status">{ascan_line}</p>
+</div>
+</section>
 <main>
 <div>
 <section>
@@ -325,6 +391,8 @@ a {{ color: #9a3412; }}
 "#,
         proxy = escape(&proxy.to_string()),
         break_forms = break_toggles(shot),
+        spider_line = spider_line,
+        ascan_line = ascan_line,
         sites = sites,
         history = if history.is_empty() {
             "<li>No history yet.</li>".to_string()
@@ -453,6 +521,8 @@ const POLL_SCRIPT: &str = r##"<script>
         text("sites", state.sites && state.sites.length ? state.sites : "No sites yet.");
         fillHistory(state.history);
         fillAlerts(state.alerts);
+        if (state.spider) text("spider-status", state.spider.line);
+        if (state.activeScan) text("ascan-status", state.activeScan.line);
         var message = state.message || {};
         text("request", message.request || "");
         text("response", message.response || "");
@@ -515,6 +585,7 @@ fn http_response(status: u16, content_type: &str, body: Vec<u8>) -> Vec<u8> {
     let reason = match status {
         200 => "OK",
         303 => "See Other",
+        400 => "Bad Request",
         404 => "Not Found",
         409 => "Conflict",
         500 => "Internal Server Error",

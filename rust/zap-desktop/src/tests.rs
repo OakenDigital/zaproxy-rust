@@ -184,6 +184,17 @@ fn zapd_does_not_depend_on_the_desktop_crate() {
     );
 }
 
+#[test]
+fn scan_controls_accept_only_http_urls() {
+    assert!(crate::scans::parse_http_url("").is_err());
+    assert!(crate::scans::parse_http_url("javascript:alert(1)").is_err());
+    assert!(crate::scans::parse_http_url("ftp://files.example/a").is_err());
+    assert_eq!(
+        crate::scans::parse_http_url(" http://127.0.0.1/seed ").unwrap(),
+        "http://127.0.0.1/seed"
+    );
+}
+
 fn wait_for(breakpoint: &Breakpoint) -> crate::breakpoint::Waiting {
     let start = std::time::Instant::now();
     loop {

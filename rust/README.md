@@ -134,6 +134,12 @@ One seed URL is fetched, plus `/robots.txt` and `/sitemap.xml` on that host. HTM
 
 `zapd` builds the spider on the default sender at startup and does not crawl until a seed is provided.
 
+## Desktop
+
+`zap-desktop` is a separate process. `zapd` does not depend on it. The local page lists sites, history, request and response text, and alerts, and it can hold a breakpoint.
+
+From that page, Start spider crawls one seed URL with the traditional spider (HTML, forms, robots.txt, and sitemap.xml). The AJAX spider is not included. Each fetched response is stored and passive-scanned, so plugin 10021 appears in the existing alerts list when the body is non-empty and `X-Content-Type-Options` is missing. Start active scan runs the active-scan engine against one URL. Alerts from that scan, including plugin 40003 and 90021 when the target matches, are written to the same session and show up in that alerts list.
+
 ## Packaged scan
 
 `docker/Dockerfile-zapd` runs `zapd` in daemon mode. The image installs Python and the existing `zap-baseline.py`, `zap-full-scan.py`, and `zap-api-scan.py` clients. It does not install a JDK, Webswing, Xvfb, or Firefox. The entrypoint is `/zap/zap-x.sh`, which execs `zapd`.

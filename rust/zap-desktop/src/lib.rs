@@ -20,8 +20,11 @@
 //!
 //! Not an official OWASP ZAP build. The `zap-desktop` binary serves a local
 //! page for sites, history, request and response text, alerts, and
-//! intercept/break forward or drop. `zapd` does not depend on this crate
-//! and still runs with the desktop disabled. Syntax coloring is not included.
+//! intercept/break forward or drop. From that page a person can start a
+//! traditional spider crawl and an active scan. Alerts from both show up
+//! in the alerts list. The AJAX spider is not included. `zapd` does not
+//! depend on this crate and still runs with the desktop disabled. Syntax
+//! coloring is not included.
 //!
 //! Break was left out of the proxy milestone. It lives here as a listener
 //! the desktop binary registers. A held request is not sent until Forward.
@@ -32,6 +35,7 @@
 
 mod breakpoint;
 mod launch;
+mod scans;
 mod ui;
 mod view;
 

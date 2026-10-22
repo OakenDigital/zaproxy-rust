@@ -2296,6 +2296,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tracing",
+ "zap-ascan",
  "zap-core",
  "zap-pscan",
  "zap-store",
@@ -2434,6 +2435,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "zap-scanrules"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "http",
+ "regex",
+ "zap-addon",
+ "zap-ascan",
+ "zap-core",
+ "zap-pscan",
+ "zap-store",
+]
+
+[[package]]
 name = "zap-script"
 version = "0.1.0"
 dependencies = [
@@ -2495,6 +2510,7 @@ dependencies = [
  "zap-http",
  "zap-proxy",
  "zap-pscan",
+ "zap-scanrules",
  "zap-script",
  "zap-spider",
  "zap-store",

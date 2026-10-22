@@ -143,6 +143,7 @@ fn alert_row_round_trips_plugin_risk_confidence_cwe_wasc_param_and_url() {
     let path = temp_db("alert");
     let detailed = NewAlert {
         plugin_id: 40012,
+        name: String::new(),
         risk: Risk::Medium.code(),
         confidence: Confidence::High.code(),
         cwe_id: 79,
@@ -152,6 +153,7 @@ fn alert_row_round_trips_plugin_risk_confidence_cwe_wasc_param_and_url() {
     };
     let unknown = NewAlert {
         plugin_id: 0,
+        name: String::new(),
         risk: Risk::Informational.code(),
         confidence: Confidence::UserConfirmed.code(),
         cwe_id: UNKNOWN_CWE_ID,
@@ -161,6 +163,7 @@ fn alert_row_round_trips_plugin_risk_confidence_cwe_wasc_param_and_url() {
     };
     let raw = NewAlert {
         plugin_id: 7,
+        name: String::new(),
         risk: 99,
         confidence: 99,
         cwe_id: 89,
@@ -239,6 +242,7 @@ fn every_risk_and_confidence_code_round_trips() {
                 session
                     .insert_alert(&NewAlert {
                         plugin_id: 100,
+                        name: String::new(),
                         risk: risk.code(),
                         confidence: confidence.code(),
                         cwe_id: UNKNOWN_CWE_ID,

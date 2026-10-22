@@ -24,14 +24,24 @@
 use std::sync::Arc;
 
 use zap_api::ApiService;
-use zap_ascan::{ActiveScanService, DefaultSender};
+use zap_ascan::{ActivePlugin, ActiveScanService, DefaultSender};
 use zap_proxy::EarlyOverride;
 use zap_store::Session;
 
 /// Active scan service on the default sender.
-pub fn start(session: Arc<Session>) -> Result<Arc<ActiveScanService>, String> {
+///
+/// `extra` is the active rules from installed add-ons. This function does
+/// not name those rules.
+pub fn start(
+    session: Arc<Session>,
+    extra: Vec<Arc<dyn ActivePlugin>>,
+) -> Result<Arc<ActiveScanService>, String> {
     let sender = DefaultSender::from_current()?;
-    Ok(Arc::new(ActiveScanService::new(session, Arc::new(sender))))
+    Ok(Arc::new(ActiveScanService::with_plugins(
+        session,
+        Arc::new(sender),
+        extra,
+    )))
 }
 
 /// Answer `ascan` routes, then the core and alert API.

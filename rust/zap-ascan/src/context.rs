@@ -121,6 +121,7 @@ impl<'a> ScanContext<'a> {
     pub fn raise(&self, alert: RaisedAlert) {
         let row = NewAlert {
             plugin_id: alert.plugin_id,
+            name: alert.name.to_string(),
             risk: alert.risk,
             confidence: alert.confidence,
             cwe_id: alert.cwe_id,

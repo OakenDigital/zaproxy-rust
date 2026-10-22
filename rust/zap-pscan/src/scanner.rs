@@ -30,6 +30,9 @@ use crate::threshold::AlertThreshold;
 pub trait PassiveScanner: Send + Sync {
     fn plugin_id(&self) -> i32;
 
+    /// Rule name. An individual alert may use a more specific name.
+    fn name(&self) -> &'static str;
+
     fn set_threshold(&self, threshold: AlertThreshold);
 
     fn is_enabled(&self) -> bool;

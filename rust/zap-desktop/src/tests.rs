@@ -72,6 +72,7 @@ fn snapshot_shows_sites_history_message_and_alerts() {
     session
         .insert_alert(&NewAlert {
             plugin_id: 10021,
+            name: String::new(),
             risk: 1,
             confidence: 2,
             cwe_id: 693,

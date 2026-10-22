@@ -29,12 +29,18 @@ use zap_addon::{AddonPassiveListener, Registry};
 use zap_addon_sample::install;
 use zap_core::ProxyListener;
 use zap_proxy::EarlyOverride;
+use zap_scanrules::install as install_scanrules;
 use zap_store::Session;
 
 /// Read the add-on directory. Linked crates register before the read.
+///
+/// Bundled scan-rule manifests are installed when that id is not already
+/// in the directory. This function does not name those rules.
 pub fn load(dir: &Path) -> Result<Registry, String> {
     install();
-    Registry::load(dir).map_err(|err| err.to_string())
+    install_scanrules();
+    Registry::load_with_bundled(dir, zap_scanrules::bundled_manifests())
+        .map_err(|err| err.to_string())
 }
 
 /// Append the listener that runs passive rules from installed add-ons.
@@ -85,16 +91,22 @@ mod tests {
     fn copied_manifest_is_loaded_on_the_next_start() {
         let dir = temp_dir();
         let first = load(&dir).unwrap();
-        assert_eq!(first.passive_rule_count(), 0);
+        assert!(first.ids().iter().any(|id| id == "pscanrules"));
+        assert!(first.ids().iter().any(|id| id == "ascanrules"));
         assert_eq!(first.api_count(), 0);
+        let passive = first.passive_rule_count();
+        let active = first.active_plugin_count();
+        assert!(passive > 0);
+        assert!(active > 0);
         std::fs::copy(
             zap_addon_sample::manifest_file(),
             dir.join("installed.addon.json"),
         )
         .unwrap();
         let second = load(&dir).unwrap();
-        assert_eq!(second.len(), 1);
-        assert_eq!(second.passive_rule_count(), 1);
+        assert_eq!(second.len(), first.len() + 1);
+        assert_eq!(second.passive_rule_count(), passive + 1);
+        assert_eq!(second.active_plugin_count(), active);
         assert_eq!(second.api_count(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }

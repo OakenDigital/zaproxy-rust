@@ -30,7 +30,9 @@ use zap_core::{HttpMessage, HttpResponse};
 use zap_store::Session;
 
 use crate::coding::form_pairs;
+use crate::context::ActivePlugin;
 use crate::engine::{Engine, ScanOptions};
+use crate::rules::{CrlfInjectionScanRule, XpathInjectionScanRule};
 use crate::sender::ScanSender;
 
 /// Active scan API and engine.
@@ -40,8 +42,22 @@ pub struct ActiveScanService {
 
 impl ActiveScanService {
     pub fn new(session: Arc<Session>, sender: Arc<dyn ScanSender>) -> Self {
+        Self::with_plugins(session, sender, Vec::new())
+    }
+
+    /// Built-in CRLF and XPath rules, then `extra` from installed add-ons.
+    pub fn with_plugins(
+        session: Arc<Session>,
+        sender: Arc<dyn ScanSender>,
+        extra: Vec<Arc<dyn ActivePlugin>>,
+    ) -> Self {
+        let mut plugins: Vec<Arc<dyn ActivePlugin>> = vec![
+            Arc::new(CrlfInjectionScanRule),
+            Arc::new(XpathInjectionScanRule),
+        ];
+        plugins.extend(extra);
         Self {
-            engine: Arc::new(Engine::new(session, sender)),
+            engine: Arc::new(Engine::with_plugins(session, sender, plugins)),
         }
     }
 

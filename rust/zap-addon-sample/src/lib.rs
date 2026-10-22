@@ -117,6 +117,10 @@ impl PassiveScanner for SamplePassiveRule {
         PLUGIN_ID
     }
 
+    fn name(&self) -> &'static str {
+        RULE_NAME
+    }
+
     fn set_threshold(&self, threshold: AlertThreshold) {
         self.threshold.store(threshold as u8, Ordering::SeqCst);
     }
@@ -142,6 +146,7 @@ impl PassiveScanner for SamplePassiveRule {
         }
         vec![NewAlert {
             plugin_id: PLUGIN_ID,
+            name: RULE_NAME.to_string(),
             risk: Risk::Informational.code(),
             confidence: Confidence::Medium.code(),
             cwe_id: -1,

@@ -546,7 +546,7 @@ mod tests {
     #[tokio::test]
     async fn loaded_rewrite_script_sets_request_and_response_headers() {
         let session = Arc::new(Session::open(temp_db()).unwrap());
-        let (packaged, _) = phase11::start(Arc::clone(&session)).expect("runtime");
+        let (packaged, _) = phase11::start(Arc::clone(&session), Vec::new()).expect("runtime");
         let host = Arc::new(zap_script::ScriptHost::new());
         let controls = EngineControls::new(Arc::clone(&host), packaged);
         controls.load_script_file(&rewrite_script(), None).unwrap();
@@ -619,7 +619,7 @@ mod tests {
              </context></configuration>"
         );
         let session = Arc::new(Session::open(temp_db()).unwrap());
-        let (packaged, _) = phase11::start(Arc::clone(&session)).unwrap();
+        let (packaged, _) = phase11::start(Arc::clone(&session), Vec::new()).unwrap();
         let controls = EngineControls::new(Arc::new(zap_script::ScriptHost::new()), packaged);
         controls.import_context_xml(&xml).unwrap();
         let id = controls.start_spider(&format!("{origin}/app/")).unwrap();
@@ -753,7 +753,7 @@ mod tests {
         password: &str,
     ) -> Arc<EngineControls> {
         let session = Arc::new(Session::open(temp_db()).unwrap());
-        let (packaged, _) = phase11::start(session).unwrap();
+        let (packaged, _) = phase11::start(session, Vec::new()).unwrap();
         let controls = EngineControls::new(Arc::new(zap_script::ScriptHost::new()), packaged);
         controls.import_context_xml(xml).unwrap();
         controls.set_user(name, username, password);

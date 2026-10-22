@@ -40,6 +40,10 @@ impl PassiveScanner for NopRule {
         1
     }
 
+    fn name(&self) -> &'static str {
+        "nop"
+    }
+
     fn set_threshold(&self, _threshold: AlertThreshold) {}
 
     fn is_enabled(&self) -> bool {

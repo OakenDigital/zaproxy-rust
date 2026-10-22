@@ -138,7 +138,7 @@ One seed URL is fetched, plus `/robots.txt` and `/sitemap.xml` on that host. HTM
 
 `docker/Dockerfile-zapd` runs `zapd` in daemon mode. The image installs Python and the existing `zap-baseline.py`, `zap-full-scan.py`, and `zap-api-scan.py` clients. It does not install a JDK, Webswing, Xvfb, or Firefox. The entrypoint is `/zap/zap-x.sh`, which execs `zapd`.
 
-`zap-baseline.py --autooff` is the baseline client. It spiders the target and counts passive-scan results. The rule in scope is plugin 10021 (X-Content-Type-Options). Pass, warn, and fail counts match ZAP for that rule. Rules that were not ported are not reported as passes. The automation framework (`-autorun`) is not in this image. The AJAX spider is not included. `-config`, including `spider.maxDuration`, is ignored; the crawl uses spider 0.18.0 defaults (max depth 5).
+`zap-baseline.py --autooff` is the baseline client. It spiders the target and counts passive-scan results. Rules in scope are plugin 10021 (X-Content-Type-Options) and the bundled `pscanrules` 70.0.0 header and cookie rules: 10010, 10011, 10019, 10020, 10036, 10037, 10054, and 10061. Pass, warn, and fail counts match ZAP for that set. On the baseline fixture only 10021 warns; 10019 is informational and is not a warn. Rules that were not ported are not listed, so they are not passes. Active rules 40009 and 30002 are registered for query, form, and JSON scans and are not part of the baseline count. The automation framework (`-autorun`) is not in this image. The AJAX spider is not included. `-config`, including `spider.maxDuration`, is ignored; the crawl uses spider 0.18.0 defaults (max depth 5).
 
 ```text
 docker build -f docker/Dockerfile-zapd .

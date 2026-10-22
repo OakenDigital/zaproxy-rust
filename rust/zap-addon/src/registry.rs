@@ -23,6 +23,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use zap_ascan::ActivePlugin;
 use zap_core::HttpMessage;
 use zap_pscan::PassiveScanner;
 
@@ -37,6 +38,11 @@ pub trait Addon: Send + Sync {
     fn manifest(&self) -> &Manifest;
 
     fn passive_rules(&self) -> Vec<Arc<dyn PassiveScanner>>;
+
+    /// Active rules contributed by this add-on. The default is none.
+    fn active_plugins(&self) -> Vec<Arc<dyn ActivePlugin>> {
+        Vec::new()
+    }
 
     fn api_implementor(&self) -> Option<Arc<dyn ApiImplementor>>;
 }
@@ -73,6 +79,39 @@ impl Registry {
     /// is an error. Any other file is ignored. Calling this again after a
     /// manifest is copied is the restart that picks the add-on up.
     pub fn load(dir: &Path) -> Result<Self, AddonError> {
+        Self::load_with_bundled(dir, Vec::new())
+    }
+
+    /// Read `dir`, then add `bundled` manifests whose ids are not already there.
+    ///
+    /// A copied manifest with the same id wins, so a directory install is not
+    /// registered twice.
+    pub fn load_with_bundled(dir: &Path, bundled: Vec<Manifest>) -> Result<Self, AddonError> {
+        let mut manifests = Self::read_manifests(dir)?;
+        let present: HashSet<String> = manifests
+            .iter()
+            .map(|manifest| manifest.id.clone())
+            .collect();
+        for manifest in bundled {
+            if !present.contains(&manifest.id) {
+                manifests.push(manifest);
+            }
+        }
+        Self::from_manifests(manifests)
+    }
+
+    pub fn active_plugins(&self) -> Vec<Arc<dyn ActivePlugin>> {
+        self.addons
+            .iter()
+            .flat_map(|addon| addon.active_plugins())
+            .collect()
+    }
+
+    pub fn active_plugin_count(&self) -> usize {
+        self.active_plugins().len()
+    }
+
+    fn read_manifests(dir: &Path) -> Result<Vec<Manifest>, AddonError> {
         if !dir.exists() {
             fs::create_dir_all(dir).map_err(|source| AddonError::Directory {
                 path: dir.display().to_string(),
@@ -112,7 +151,7 @@ impl Registry {
                 .map_err(|source| AddonError::Manifest { path: name, source })?;
             manifests.push(manifest);
         }
-        Self::from_manifests(manifests)
+        Ok(manifests)
     }
 
     /// Resolve `manifests` and instantiate registered factories.

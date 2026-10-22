@@ -34,6 +34,9 @@ use crate::threshold::{AlertThreshold, ScannerState};
 /// Plugin id from pscanrules v70 `XContentTypeOptionsScanRule`.
 pub const PLUGIN_ID: i32 = 10021;
 
+/// Alert name from pscanrules v70.
+pub const RULE_NAME: &str = "X-Content-Type-Options Header Missing";
+
 /// Header name and alert param. Matches `HttpHeader.X_CONTENT_TYPE_OPTIONS`.
 pub const HEADER_NAME: &str = "x-content-type-options";
 
@@ -60,6 +63,7 @@ impl XContentTypeOptionsScanRule {
     fn alert(&self, msg: &HttpMessage) -> NewAlert {
         NewAlert {
             plugin_id: PLUGIN_ID,
+            name: RULE_NAME.to_string(),
             risk: Risk::Low.code(),
             confidence: Confidence::Medium.code(),
             cwe_id: CWE_ID,
@@ -79,6 +83,10 @@ impl Default for XContentTypeOptionsScanRule {
 impl PassiveScanner for XContentTypeOptionsScanRule {
     fn plugin_id(&self) -> i32 {
         PLUGIN_ID
+    }
+
+    fn name(&self) -> &'static str {
+        RULE_NAME
     }
 
     fn set_threshold(&self, threshold: AlertThreshold) {

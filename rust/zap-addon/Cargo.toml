@@ -12,6 +12,7 @@ semver.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+zap-ascan.workspace = true
 zap-core.workspace = true
 zap-pscan.workspace = true
 zap-store.workspace = true

@@ -79,6 +79,10 @@ impl PassiveScanner for Probe {
         self.plugin_id
     }
 
+    fn name(&self) -> &'static str {
+        "probe"
+    }
+
     fn set_threshold(&self, threshold: AlertThreshold) {
         self.state.set_threshold(threshold);
     }
@@ -91,6 +95,7 @@ impl PassiveScanner for Probe {
         self.calls.fetch_add(1, Ordering::SeqCst);
         vec![NewAlert {
             plugin_id: self.plugin_id,
+            name: "probe".to_string(),
             risk: 0,
             confidence: 0,
             cwe_id: -1,

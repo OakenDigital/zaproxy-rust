@@ -33,13 +33,15 @@ use serde_json::{json, Value};
 use zap_auth::Context;
 use zap_core::{HttpMessage, HttpResponse, ProxyListener};
 use zap_proxy::EarlyOverride;
-use zap_pscan::{PassiveScanListener, PassiveScanner, PLUGIN_ID};
+use zap_pscan::{PassiveScanListener, PassiveScanner, PLUGIN_ID, RULE_NAME};
 use zap_spider::{DefaultSender, FetchResponse, Spider, SpiderSender};
 use zap_store::Session;
 
-const RULE_NAME: &str = "X-Content-Type-Options Header Missing";
-
-/// Spider and passive-scan API used by the packaged scan scripts.
+/// Spider, `accessUrl`, and `pscan/view/scanners` for the packaged scan scripts.
+///
+/// `scanners` includes plugin 10021 and installed add-on passive rules.
+/// `recordsToScan`, `disableAllTags`, and `setMaxAlertsPerRule` are served
+/// by `zap-api`.
 pub struct PackagedScan {
     spider: Arc<Spider>,
     sender: Arc<RecordingSender>,
@@ -167,12 +169,11 @@ impl PackagedScan {
         let outcome = match (component, kind, name) {
             ("spider", Some("action"), Some("scan")) => self.scan(&params_of(msg)),
             ("spider", Some("view"), Some("status")) => self.status(&params_of(msg)),
+            // Add-on passive rules are listed here. The other pscan routes
+            // fall through to zap-api.
             ("pscan", Some("view"), Some("scanners")) => Ok(self.scanners()),
-            ("pscan", Some("view"), Some("recordsToScan")) => Ok(json!({ "recordsToScan": "0" })),
-            ("pscan", Some("action"), Some("disableAllTags")) => Ok(json!({ "Result": "OK" })),
-            ("pscan", Some("action"), Some("setMaxAlertsPerRule")) => Ok(json!({ "Result": "OK" })),
             ("core", Some("action"), Some("accessUrl")) => self.access_url(&params_of(msg)),
-            ("spider" | "pscan", _, _) => Err(unknown(kind)),
+            ("spider", _, _) => Err(unknown(kind)),
             _ => return false,
         };
         msg.response = Some(match outcome {
@@ -515,7 +516,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn packaged_scan_lists_only_the_ported_passive_rule() {
+    async fn packaged_scan_leaves_pscan_routes_for_the_core_api() {
         let session = Arc::new(Session::open(temp_db()).unwrap());
         let (packaged, _) = start(session, Vec::new()).unwrap();
 
@@ -531,10 +532,8 @@ mod tests {
         assert_eq!(body["scanners"].as_array().unwrap().len(), 1);
 
         let mut pending = message("http://zap/JSON/pscan/view/recordsToScan/");
-        assert!(packaged.handle(&mut pending));
-        let body: serde_json::Value =
-            serde_json::from_slice(&pending.response.unwrap().body).unwrap();
-        assert_eq!(body["recordsToScan"], "0");
+        assert!(!packaged.handle(&mut pending));
+        assert!(pending.response.is_none());
 
         let mut version = message("http://zap/JSON/core/view/version/");
         assert!(!packaged.handle(&mut version));

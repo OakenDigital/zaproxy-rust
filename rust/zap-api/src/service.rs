@@ -19,7 +19,7 @@
 //! Dispatch `http://zap/JSON/<component>/<type>/<name>/`.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, StatusCode, Uri};
@@ -27,11 +27,14 @@ use serde_json::{json, Map, Value};
 use zap_core::{HistoryRow, HttpMessage, HttpResponse};
 use zap_store::{AlertRow, Confidence, Risk, Session};
 
+use crate::meta::{MetaError, MetaState};
+
 /// Answers API requests for one session.
 pub struct ApiService {
     session: Arc<Session>,
     version: String,
     on_shutdown: Arc<dyn Fn() + Send + Sync>,
+    meta: Mutex<MetaState>,
 }
 
 struct Outcome {
@@ -86,6 +89,46 @@ impl ApiError {
         Self::new(StatusCode::BAD_REQUEST, "does_not_exist", "Does Not Exist")
     }
 
+    fn already_exists() -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "already_exists", "Already Exists")
+    }
+
+    fn bad_external_data() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "bad_external_data",
+            "The external data provided is not valid.",
+        )
+    }
+
+    fn bad_state() -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "bad_state", "Bad State")
+    }
+
+    fn user_not_found() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "user_not_found",
+            "No User found that matches parameter",
+        )
+    }
+
+    fn url_not_found() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "url_not_found",
+            "URL Not Found in the Scan Tree",
+        )
+    }
+
+    fn url_not_in_context() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "url_not_in_context",
+            "The provided url is not in the required context",
+        )
+    }
+
     fn internal() -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -120,6 +163,7 @@ impl ApiService {
             session,
             version: version.into(),
             on_shutdown,
+            meta: Mutex::new(MetaState::new()),
         }
     }
 
@@ -175,6 +219,8 @@ impl ApiService {
             ("core", "view", "messages") => self.messages(&params)?,
             ("core", "view", "urls") => self.urls()?,
             ("core", "view", "alerts") => self.alerts(&params, true)?,
+            ("core", "view", "message") => self.message(&params)?,
+            ("core", "view", "numberOfMessages") => self.number_of_messages(&params)?,
             ("core", "action", "shutdown") => {
                 return Ok(Outcome {
                     response: json_response(StatusCode::OK, json!({ "Result": "OK" })),
@@ -183,9 +229,52 @@ impl ApiService {
             }
             ("alert", "view", "alerts") => self.alerts(&params, false)?,
             ("alert", "view", "alert") => self.alert(&params)?,
-            ("core", "view", _) => return Err(ApiError::bad_view()),
-            ("alert", "view", _) => return Err(ApiError::bad_view()),
-            ("core", "action", _) | ("alert", "action", _) => return Err(ApiError::bad_action()),
+            ("pscan", "view", "scanners") => self.with_meta(|meta| Ok(meta.pscan_scanners()))?,
+            ("pscan", "view", "recordsToScan") => {
+                self.with_meta(|meta| Ok(meta.records_to_scan()))?
+            }
+            ("pscan", "action", "disableAllTags") => {
+                self.with_meta(|meta| Ok(meta.disable_all_tags()))?
+            }
+            ("pscan", "action", "setMaxAlertsPerRule") => {
+                self.with_meta(|meta| meta.set_max_alerts_per_rule(&params))?
+            }
+            ("ascan", "view", "scanners") => self.with_meta(|meta| meta.ascan_scanners(&params))?,
+            ("ascan", "view", "scanProgress") => {
+                self.with_meta(|meta| meta.scan_progress(&params))?
+            }
+            ("ascan", "action", "enableAllScanners") => {
+                self.with_meta(|meta| meta.enable_all_scanners(&params))?
+            }
+            ("ascan", "action", "setScannerAlertThreshold") => {
+                self.with_meta(|meta| meta.set_scanner_alert_threshold(&params))?
+            }
+            ("ascan", "action", "scanAsUser") => {
+                let urls = self.recorded_urls()?;
+                self.with_meta(|meta| meta.scan_as_user(&params, &urls))?
+            }
+            ("context", "view", "contextList") => self.with_meta(|meta| Ok(meta.context_list()))?,
+            ("context", "action", "importContext") => {
+                self.with_meta(|meta| meta.import_context(&params))?
+            }
+            ("users", "view", "usersList") => self.with_meta(|meta| meta.users_list(&params))?,
+            ("script", "view", "listEngines") => self.with_meta(|meta| Ok(meta.list_engines()))?,
+            ("script", "action", "load") => self.with_meta(|meta| meta.load_script(&params))?,
+            ("script", "action", "enable") => self.with_meta(|meta| meta.enable_script(&params))?,
+            ("core", "view", _)
+            | ("alert", "view", _)
+            | ("pscan", "view", _)
+            | ("ascan", "view", _)
+            | ("context", "view", _)
+            | ("users", "view", _)
+            | ("script", "view", _) => return Err(ApiError::bad_view()),
+            ("core", "action", _)
+            | ("alert", "action", _)
+            | ("pscan", "action", _)
+            | ("ascan", "action", _)
+            | ("context", "action", _)
+            | ("users", "action", _)
+            | ("script", "action", _) => return Err(ApiError::bad_action()),
             _ => return Err(ApiError::no_implementor()),
         };
         Ok(Outcome {
@@ -208,12 +297,44 @@ impl ApiService {
     }
 
     fn messages(&self, params: &HashMap<String, String>) -> Result<Value, ApiError> {
+        let page = self.message_page(params)?;
+        Ok(string_list(
+            "messages",
+            page.iter().map(message_value).collect(),
+        ))
+    }
+
+    fn message(&self, params: &HashMap<String, String>) -> Result<Value, ApiError> {
+        let Some(raw) = params.get("id").filter(|value| !value.is_empty()) else {
+            return Err(ApiError::missing_parameter());
+        };
+        let id: u64 = raw.parse().map_err(|_| ApiError::illegal_parameter())?;
+        let rows = self
+            .session
+            .history_rows()
+            .map_err(|_| ApiError::internal())?;
+        let row = rows
+            .iter()
+            .find(|row| row.id == id)
+            .ok_or_else(ApiError::does_not_exist)?;
+        // `CoreAPI` wraps `httpMessageToSet` in `ApiResponseElement`. The
+        // element string is rehydrated, so the value is the message object.
+        // `tags` stays an array from `HttpMessageResponseSet`.
+        Ok(json!({ "message": message_value(row) }))
+    }
+
+    fn number_of_messages(&self, params: &HashMap<String, String>) -> Result<Value, ApiError> {
+        let page = self.message_page(params)?;
+        Ok(json!({ "numberOfMessages": page.len().to_string() }))
+    }
+
+    fn message_page(&self, params: &HashMap<String, String>) -> Result<Vec<HistoryRow>, ApiError> {
         let start = optional_i32(params, "start")?.unwrap_or(-1);
         let count = optional_i32(params, "count")?.unwrap_or(-1);
         let base = params
             .get("baseurl")
             .map(String::as_str)
-            .filter(|s| !s.is_empty());
+            .filter(|value| !value.is_empty());
         let rows = self
             .session
             .history_rows()
@@ -223,11 +344,23 @@ impl ApiService {
                 && !is_image(&row.response_headers)
                 && base.is_none_or(|prefix| row.url.starts_with(prefix))
         });
-        let page = paginate(filtered, start, count);
-        Ok(string_list(
-            "messages",
-            page.iter().map(message_value).collect(),
-        ))
+        Ok(paginate(filtered, start, count))
+    }
+
+    fn recorded_urls(&self) -> Result<Vec<String>, ApiError> {
+        let rows = self
+            .session
+            .history_rows()
+            .map_err(|_| ApiError::internal())?;
+        Ok(rows.into_iter().map(|row| row.url).collect())
+    }
+
+    fn with_meta<T>(
+        &self,
+        body: impl FnOnce(&mut MetaState) -> Result<T, MetaError>,
+    ) -> Result<T, ApiError> {
+        let mut meta = self.meta.lock().map_err(|_| ApiError::internal())?;
+        body(&mut meta).map_err(api_error)
     }
 
     fn urls(&self) -> Result<Value, ApiError> {
@@ -288,6 +421,21 @@ impl ApiService {
             .map_err(|_| ApiError::internal())?
             .ok_or_else(ApiError::does_not_exist)?;
         Ok(json!({ "alert": alert_value(&row).to_string() }))
+    }
+}
+
+fn api_error(err: MetaError) -> ApiError {
+    match err {
+        MetaError::MissingParameter => ApiError::missing_parameter(),
+        MetaError::IllegalParameter => ApiError::illegal_parameter(),
+        MetaError::DoesNotExist => ApiError::does_not_exist(),
+        MetaError::AlreadyExists => ApiError::already_exists(),
+        MetaError::BadExternalData => ApiError::bad_external_data(),
+        MetaError::BadState => ApiError::bad_state(),
+        MetaError::UserNotFound => ApiError::user_not_found(),
+        MetaError::UrlNotFound => ApiError::url_not_found(),
+        MetaError::UrlNotInContext => ApiError::url_not_in_context(),
+        MetaError::Internal => ApiError::internal(),
     }
 }
 

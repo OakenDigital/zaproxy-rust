@@ -2321,6 +2321,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "http",
+ "regex",
  "serde_json",
  "tokio",
  "zap-core",

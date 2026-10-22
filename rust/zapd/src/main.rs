@@ -262,6 +262,9 @@ async fn main() -> ExitCode {
         listeners,
         extra_root_pems: Vec::new(),
         history: Some(history),
+        // META-API: pscan, ascan scanners, context, users, and script JSON
+        // that phase 6 and phase 11 do not answer is served by `api`.
+        // ascan scan/status/stop and spider scan/status stay in front of it.
         early_override: Some(phase8::chain(
             controls::chain(
                 phase11::chain(phase6::early_override(api, ascan), packaged),

@@ -87,10 +87,11 @@ impl ActiveScanService {
             (Some("action"), Some("scan")) => self.scan(&params_of(msg)),
             (Some("action"), Some("stop")) => self.stop(&params_of(msg)),
             (Some("view"), Some("status")) => self.status(&params_of(msg)),
+            // META-API: scanners, scanProgress, enableAllScanners,
+            // setScannerAlertThreshold, and scanAsUser fall through to zap-api.
+            (Some("action" | "view"), Some(_)) => return false,
             (Some("action"), None) => Err(ApiError::bad_action()),
             (Some("view"), None) => Err(ApiError::bad_view()),
-            (Some("action"), Some(_)) => Err(ApiError::bad_action()),
-            (Some("view"), Some(_)) => Err(ApiError::bad_view()),
             _ => Err(ApiError::bad_type()),
         };
         msg.response = Some(match outcome {

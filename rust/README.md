@@ -10,7 +10,8 @@ contacted), or stop later listeners. After history is recorded, a passive-scan
 queue runs one header rule: X-Content-Type-Options (plugin id 10021). A
 JavaScript host runs `proxy` and `httpsender` scripts. Form and JSON logins
 send a follow-up request as a user. An active scan can be started on the
-default HTTP sender.
+default HTTP sender. Add-ons are installed by copying a manifest into
+`zapd-addons` and starting again.
 
 The Java tree in the repository root is unchanged and remains the behavioral
 spec.
@@ -22,8 +23,8 @@ cargo run -p zapd -- --port 8080
 cargo run -p zapd -- --version
 ```
 
-Single-dash forms `-port`, `-host`, `-exclude`, `-ca-dir`, `-session`, and
-`-version` are accepted. The CA is written to `zapd-ca/ca.crt` and
+Single-dash forms `-port`, `-host`, `-exclude`, `-ca-dir`, `-session`,
+`-addon-dir`, and `-version` are accepted. The CA is written to `zapd-ca/ca.crt` and
 `zapd-ca/ca.key` (override with `--ca-dir`). Point a client at the printed
 address and trust `ca.crt` for HTTPS.
 
@@ -124,6 +125,20 @@ Two rules are ported from ascanrules v78 (the version pinned in `zap/src/main/ma
 | XPath Injection | 90021 | high (3) | high (3) | 643 | 39 |
 
 CRLF Injection sends tamper payloads and alerts when the response headers contain `Set-Cookie: Tamper=<token>`. XPath Injection sends `"'`, `<!--`, and `]]>` and alerts when the response body contains an XPath error that the original response did not. Alerts are written to the session with the same plugin id, risk, confidence, CWE, WASC, param, and URL.
+
+## Add-ons
+
+The registry is `zap-addon`. A manifest is a JSON file named `*.addon.json`
+with an id, a semver version, and semver dependencies. Copy that file into
+`--addon-dir` (default `zapd-addons`) and start `zapd` again. The new process
+reads the directory and registers whatever first-party crate matches the id.
+`zapd` does not name the sample rule. Java `.zap` files are rejected. Dynamic
+cdylib and Wasm loading are not implemented.
+
+The sample crate `zap-addon-sample` (id `sample`, version 1.0.0) contributes
+one passive rule and `GET /JSON/sample/view/ping/`, which returns
+`{"result":"pong"}`. The passive listener runs at order 5002, after the
+built-in passive scan.
 
 ## Listeners
 

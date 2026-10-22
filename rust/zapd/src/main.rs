@@ -22,6 +22,7 @@
 
 mod phase5;
 mod phase6;
+mod phase8;
 mod scripts;
 
 use std::net::{IpAddr, SocketAddr};
@@ -70,6 +71,10 @@ struct Cli {
     /// Also accepted as -session.
     #[arg(long = "session", default_value = "zapd-session.sqlite")]
     session: PathBuf,
+
+    /// Directory of add-on manifests. Also accepted as -addon-dir.
+    #[arg(long = "addon-dir", default_value = "zapd-addons")]
+    addon_dir: PathBuf,
 }
 
 fn normalize_args<I>(args: I) -> Vec<String>
@@ -84,6 +89,7 @@ where
             "-exclude" => "--exclude".to_string(),
             "-ca-dir" => "--ca-dir".to_string(),
             "-session" => "--session".to_string(),
+            "-addon-dir" => "--addon-dir".to_string(),
             other => other.to_string(),
         })
         .collect()
@@ -132,6 +138,16 @@ async fn main() -> ExitCode {
     // Hooks: proxyRequest, proxyResponse, sendingRequest, responseReceived.
     // AlertOnHttpResponseCodeErrors.js does not run (`Java.type` needs a JVM).
     let listeners = scripts::register(listeners);
+    // PHASE-8: add-ons from the directory. A copied manifest loads on restart.
+    // This file does not name add-on rules. Java .zap files are not loaded.
+    let addons = match phase8::load(&cli.addon_dir) {
+        Ok(addons) => Arc::new(addons),
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
+    let listeners = phase8::register(listeners, Arc::clone(&addons), Arc::clone(&session));
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let on_shutdown = {
         let shutdown_tx = shutdown_tx.clone();
@@ -165,7 +181,10 @@ async fn main() -> ExitCode {
         listeners,
         extra_root_pems: Vec::new(),
         history: Some(history),
-        early_override: Some(phase6::early_override(api, ascan)),
+        early_override: Some(phase8::chain(
+            phase6::early_override(api, ascan),
+            Arc::clone(&addons),
+        )),
     };
 
     let proxy = match Proxy::start(config).await {
@@ -196,6 +215,8 @@ async fn main() -> ExitCode {
     println!("{}", phase5::startup_line());
     // PHASE-6
     println!("Active scan: CRLF Injection (40003), XPath Injection (90021)");
+    // PHASE-8
+    println!("{}", phase8::startup_line(&addons));
     println!("Not an official OWASP ZAP build.");
 
     tokio::select! {
@@ -235,6 +256,8 @@ mod tests {
             "certs".to_string(),
             "-session".to_string(),
             "mine.sqlite".to_string(),
+            "-addon-dir".to_string(),
+            "addons".to_string(),
         ]);
         assert_eq!(
             args,
@@ -251,6 +274,8 @@ mod tests {
                 "certs",
                 "--session",
                 "mine.sqlite",
+                "--addon-dir",
+                "addons",
             ]
         );
     }
@@ -270,5 +295,6 @@ mod tests {
     fn default_session_path_is_in_the_working_directory() {
         let cli = Cli::parse_from(["zapd"]);
         assert_eq!(cli.session, PathBuf::from("zapd-session.sqlite"));
+        assert_eq!(cli.addon_dir, PathBuf::from("zapd-addons"));
     }
 }

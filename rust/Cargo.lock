@@ -2492,6 +2492,7 @@ dependencies = [
  "zap-ascan",
  "zap-auth",
  "zap-core",
+ "zap-http",
  "zap-proxy",
  "zap-pscan",
  "zap-script",

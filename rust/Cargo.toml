@@ -73,6 +73,9 @@ zap-spider = { path = "zap-spider" }
 # PHASE-11: docker/Dockerfile-zapd runs zapd. No JDK. Baseline counts cover
 # the passive rules ported so far (plugin 10021). The automation framework
 # and the AJAX spider are not in the image.
+# META-ENGINE: zapd flags and http://zap/ actions drive the traditional
+# spider seed, Boa proxy and httpsender script files, and a context file
+# with form or JSON login plus send-as-user. No new scan rules. No AJAX spider.
 # PHASE-6: active scan engine and the two ascanrules ports.
 zap-ascan = { path = "zap-ascan" }
 zap-auth = { path = "zap-auth" }

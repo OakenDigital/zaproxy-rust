@@ -27,6 +27,8 @@ zap-spider.workspace = true
 zap-ascan.workspace = true
 zap-auth.workspace = true
 zap-core.workspace = true
+# META-ENGINE: send-as-user uses the phase 5 upstream client.
+zap-http.workspace = true
 zap-proxy.workspace = true
 zap-pscan.workspace = true
 zap-script.workspace = true

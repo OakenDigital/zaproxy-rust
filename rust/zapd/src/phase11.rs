@@ -30,6 +30,7 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, Method, StatusCode};
 use serde_json::{json, Value};
+use zap_auth::Context;
 use zap_core::{HttpMessage, HttpResponse, ProxyListener};
 use zap_proxy::EarlyOverride;
 use zap_pscan::{PassiveScanListener, PLUGIN_ID};
@@ -44,6 +45,8 @@ pub struct PackagedScan {
     sender: Arc<RecordingSender>,
     scans: Arc<Mutex<HashMap<u64, bool>>>,
     next_id: AtomicU64,
+    /// Phase 5 context. When set, a crawl leaves out-of-context URLs unfetched.
+    context: Arc<Mutex<Option<Context>>>,
 }
 
 struct RecordingSender {
@@ -94,6 +97,7 @@ pub fn start(
         sender,
         scans: Arc::new(Mutex::new(HashMap::new())),
         next_id: AtomicU64::new(0),
+        context: Arc::new(Mutex::new(None)),
     });
     Ok((packaged, pscan))
 }
@@ -149,22 +153,53 @@ impl PackagedScan {
         true
     }
 
-    fn scan(&self, params: &HashMap<String, String>) -> Result<Value, ApiError> {
-        let url = params.get("url").map(String::as_str).unwrap_or("").trim();
-        if url.is_empty() {
-            return Err(ApiError::missing_parameter());
+    /// Replace the context used by the next traditional-spider crawl.
+    pub fn set_context(&self, context: Option<Context>) {
+        if let Ok(mut slot) = self.context.lock() {
+            *slot = context;
         }
+    }
+
+    /// Start a traditional spider crawl. Out-of-context URLs are not fetched.
+    pub fn start_seed(&self, url: &str) -> Result<u64, String> {
+        let url = url.trim();
+        if url.is_empty() {
+            return Err("spider seed is empty".to_string());
+        }
+        self.begin(url)
+    }
+
+    /// Whether the crawl has finished, including when it failed.
+    pub fn scan_done(&self, id: u64) -> bool {
+        self.scans
+            .lock()
+            .ok()
+            .and_then(|scans| scans.get(&id).copied())
+            .unwrap_or(false)
+    }
+
+    fn begin(&self, url: &str) -> Result<u64, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut scans) = self.scans.lock() {
             scans.insert(id, false);
         }
         let spider = Arc::clone(&self.spider);
         let scans = Arc::clone(&self.scans);
+        let context = self.context.lock().ok().and_then(|slot| slot.clone());
         let seed = url.to_string();
         std::thread::spawn(move || {
             let _done = MarkDone { scans, id };
-            let _ = spider.crawl(&seed, None);
+            let _ = spider.crawl(&seed, context.as_ref());
         });
+        Ok(id)
+    }
+
+    fn scan(&self, params: &HashMap<String, String>) -> Result<Value, ApiError> {
+        let url = params.get("url").map(String::as_str).unwrap_or("").trim();
+        if url.is_empty() {
+            return Err(ApiError::missing_parameter());
+        }
+        let id = self.begin(url).map_err(|_| ApiError::illegal_parameter())?;
         Ok(json!({ "scan": id.to_string() }))
     }
 
@@ -175,11 +210,7 @@ impl PackagedScan {
                 .parse::<u64>()
                 .map_err(|_| ApiError::illegal_parameter())?,
         };
-        let done = self
-            .scans
-            .lock()
-            .map(|scans| scans.get(&id).copied().unwrap_or(false))
-            .unwrap_or(false);
+        let done = self.scan_done(id);
         let status = if done { "100" } else { "0" };
         Ok(json!({ "status": status }))
     }

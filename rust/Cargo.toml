@@ -27,6 +27,8 @@ members = [
     # The sample rule is not named by zapd. Java .zap files are not loaded.
     "zap-addon",
     "zap-addon-sample",
+    # PHASE-9: traditional spider (spider 0.18.0). AJAX spider is not included.
+    "zap-spider",
     # PHASE-10: optional desktop (sites, history, request/response, alerts, break).
     # zapd does not depend on this crate, so the daemon still runs without the UI.
     "zap-desktop",
@@ -66,6 +68,8 @@ zap-api = { path = "zap-api" }
 # PHASE-8: add-on manifest, registry, and the sample add-on.
 zap-addon = { path = "zap-addon" }
 zap-addon-sample = { path = "zap-addon-sample" }
+# PHASE-9: traditional spider (spider 0.18.0). AJAX spider is not included.
+zap-spider = { path = "zap-spider" }
 # PHASE-6: active scan engine and the two ascanrules ports.
 zap-ascan = { path = "zap-ascan" }
 zap-auth = { path = "zap-auth" }

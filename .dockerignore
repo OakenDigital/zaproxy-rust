@@ -1,0 +1,10 @@
+*
+!rust
+!docker
+rust/target
+docker/*
+!docker/zap-baseline.py
+!docker/zap-full-scan.py
+!docker/zap-api-scan.py
+!docker/zap_common.py
+!docker/zapd-entry.sh

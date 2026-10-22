@@ -157,6 +157,8 @@ fn documented_routes_are_the_phase3_subset() {
             "GET http://zap/JSON/core/view/version/",
             "GET http://zap/JSON/core/view/hosts/",
             "GET http://zap/JSON/core/view/messages/",
+            "GET http://zap/JSON/core/view/urls/",
+            "GET http://zap/JSON/core/view/alerts/",
             "GET http://zap/JSON/core/action/shutdown/",
             "GET http://zap/JSON/alert/view/alerts/",
             "GET http://zap/JSON/alert/view/alert/?id=",
@@ -370,4 +372,44 @@ fn other_hosts_are_left_for_the_proxy() {
     assert!(!api.handle(&mut message));
     assert!(message.response.is_none());
     assert!(!shutdown.load(Ordering::SeqCst));
+}
+
+#[test]
+fn core_urls_are_plain_strings_and_core_alerts_are_objects() {
+    let (api, _, session) = open();
+    exchange(&session, "http://127.0.0.1:9/one", b"one", "text/html");
+    exchange(&session, "http://127.0.0.1:9/two", b"two", "text/html");
+    exchange(&session, "http://127.0.0.1:9/one", b"again", "text/html");
+    session
+        .insert_alert(&NewAlert {
+            plugin_id: 10021,
+            risk: Risk::Low.code(),
+            confidence: Confidence::Medium.code(),
+            cwe_id: 693,
+            wasc_id: 15,
+            param: "x-content-type-options".to_string(),
+            url: "http://127.0.0.1:9/one".to_string(),
+        })
+        .unwrap();
+
+    let (status, urls) = call(&api, "http://zap/JSON/core/view/urls/");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        urls["urls"],
+        serde_json::json!(["http://127.0.0.1:9/one", "http://127.0.0.1:9/two"])
+    );
+    assert!(urls["urls"][0].is_string());
+
+    let (status, objects) = call(&api, "http://zap/JSON/core/view/alerts/");
+    assert_eq!(status, StatusCode::OK);
+    let alerts = objects["alerts"].as_array().unwrap();
+    assert_eq!(alerts.len(), 1);
+    assert!(alerts[0].is_object());
+    assert_eq!(alerts[0]["pluginId"], "10021");
+    assert_eq!(alerts[0]["risk"], "Low");
+    assert_eq!(alerts[0]["url"], "http://127.0.0.1:9/one");
+
+    let (status, strings) = call(&api, "http://zap/JSON/alert/view/alerts/");
+    assert_eq!(status, StatusCode::OK);
+    assert!(strings["alerts"][0].is_string());
 }

@@ -173,13 +173,15 @@ impl ApiService {
             ("core", "view", "version") => json!({ "version": self.version }),
             ("core", "view", "hosts") => self.hosts()?,
             ("core", "view", "messages") => self.messages(&params)?,
+            ("core", "view", "urls") => self.urls()?,
+            ("core", "view", "alerts") => self.alerts(&params, true)?,
             ("core", "action", "shutdown") => {
                 return Ok(Outcome {
                     response: json_response(StatusCode::OK, json!({ "Result": "OK" })),
                     shutdown: true,
                 });
             }
-            ("alert", "view", "alerts") => self.alerts(&params)?,
+            ("alert", "view", "alerts") => self.alerts(&params, false)?,
             ("alert", "view", "alert") => self.alert(&params)?,
             ("core", "view", _) => return Err(ApiError::bad_view()),
             ("alert", "view", _) => return Err(ApiError::bad_view()),
@@ -228,7 +230,23 @@ impl ApiService {
         ))
     }
 
-    fn alerts(&self, params: &HashMap<String, String>) -> Result<Value, ApiError> {
+    fn urls(&self) -> Result<Value, ApiError> {
+        let rows = self
+            .session
+            .history_rows()
+            .map_err(|_| ApiError::internal())?;
+        let mut urls = Vec::new();
+        for row in rows {
+            if !urls.contains(&row.url) {
+                urls.push(row.url);
+            }
+        }
+        Ok(json!({ "urls": urls }))
+    }
+
+    /// `objects` is the packaged-scan `core/view/alerts` shape.
+    /// `alert/view/alerts` keeps each alert as a JSON string.
+    fn alerts(&self, params: &HashMap<String, String>, objects: bool) -> Result<Value, ApiError> {
         let start = optional_i32(params, "start")?.unwrap_or(-1);
         let count = optional_i32(params, "count")?.unwrap_or(-1);
         let risk_id = match optional_i32(params, "riskId")? {
@@ -251,10 +269,12 @@ impl ApiService {
                 && base.is_none_or(|prefix| row.url.starts_with(prefix))
         });
         let page = paginate(filtered, start, count);
-        Ok(string_list(
-            "alerts",
-            page.iter().map(alert_value).collect(),
-        ))
+        let items: Vec<Value> = page.iter().map(alert_value).collect();
+        if objects {
+            Ok(json!({ "alerts": items }))
+        } else {
+            Ok(string_list("alerts", items))
+        }
     }
 
     fn alert(&self, params: &HashMap<String, String>) -> Result<Value, ApiError> {

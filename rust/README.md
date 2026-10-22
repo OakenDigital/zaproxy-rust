@@ -134,6 +134,16 @@ One seed URL is fetched, plus `/robots.txt` and `/sitemap.xml` on that host. HTM
 
 `zapd` builds the spider on the default sender at startup and does not crawl until a seed is provided.
 
+## Packaged scan
+
+`docker/Dockerfile-zapd` runs `zapd` in daemon mode. The image installs Python and the existing `zap-baseline.py`, `zap-full-scan.py`, and `zap-api-scan.py` clients. It does not install a JDK, Webswing, Xvfb, or Firefox. The entrypoint is `/zap/zap-x.sh`, which execs `zapd`.
+
+`zap-baseline.py --autooff` is the baseline client. It spiders the target and counts passive-scan results. The rule in scope is plugin 10021 (X-Content-Type-Options). Pass, warn, and fail counts match ZAP for that rule. Rules that were not ported are not reported as passes. The automation framework (`-autorun`) is not in this image. The AJAX spider is not included. `-config`, including `spider.maxDuration`, is ignored; the crawl uses spider 0.18.0 defaults (max depth 5).
+
+```text
+docker build -f docker/Dockerfile-zapd .
+```
+
 ## Add-ons
 
 The registry is `zap-addon`. A manifest is a JSON file named `*.addon.json`

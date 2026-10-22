@@ -70,6 +70,9 @@ zap-addon = { path = "zap-addon" }
 zap-addon-sample = { path = "zap-addon-sample" }
 # PHASE-9: traditional spider (spider 0.18.0). AJAX spider is not included.
 zap-spider = { path = "zap-spider" }
+# PHASE-11: docker/Dockerfile-zapd runs zapd. No JDK. Baseline counts cover
+# the passive rules ported so far (plugin 10021). The automation framework
+# and the AJAX spider are not in the image.
 # PHASE-6: active scan engine and the two ascanrules ports.
 zap-ascan = { path = "zap-ascan" }
 zap-auth = { path = "zap-auth" }

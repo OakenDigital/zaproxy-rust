@@ -278,8 +278,12 @@ def add_zap_options(params, zap_options):
 
 
 def create_start_options(mode, port, extra_params):
+    # ZAP_DAEMON overrides the daemon binary. Unset, this stays zap-x.sh,
+    # which is what the Java image installs. The zapd image points it at
+    # the same path, where zap-x.sh execs zapd.
+    daemon = os.environ.get('ZAP_DAEMON', '/zap/zap-x.sh')
     params = [
-        '/zap/zap-x.sh', mode,
+        daemon, mode,
         '-port', str(port),
         '-host', '0.0.0.0',
         '-config', 'database.recoverylog=false',

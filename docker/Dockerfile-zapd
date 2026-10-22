@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1
+# PHASE-11 packaged scan image. Runs the Rust zapd daemon.
+# Not an official OWASP ZAP build. The builder does not install a JDK.
+# Webswing, Xvfb, and Firefox are not part of this image.
+# The automation framework and the AJAX spider are not included.
+
+FROM rust:1.88-bookworm AS builder
+WORKDIR /src
+COPY rust /src/rust
+WORKDIR /src/rust
+RUN cargo build --release -p zapd
+
+FROM debian:bookworm-slim AS final
+LABEL org.opencontainers.image.description="zapd packaged scan. Not an official OWASP ZAP build."
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -q -y --no-install-recommends \
+	python3 \
+	python3-pip \
+	python-is-python3 \
+	ca-certificates \
+	curl \
+	&& rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install \
+	--break-system-packages \
+	--no-cache-dir \
+	pyyaml \
+	zaproxy
+
+RUN useradd --create-home --uid 1000 --shell /bin/bash zap \
+	&& mkdir -p /zap/wrk \
+	&& chown -R zap:zap /zap
+
+COPY --from=builder /src/rust/target/release/zapd /zap/zapd
+COPY docker/zap-baseline.py docker/zap-full-scan.py docker/zap-api-scan.py docker/zap_common.py /zap/
+COPY docker/zapd-entry.sh /zap/zap-x.sh
+RUN chmod 755 /zap/zap-x.sh /zap/zapd \
+	&& chown -R zap:zap /zap
+
+ENV PATH=/zap:$PATH \
+	ZAP_PORT=8080 \
+	IS_CONTAINERIZED=true \
+	ZAP_DAEMON=/zap/zap-x.sh \
+	HOME=/home/zap
+
+USER zap
+WORKDIR /zap
+EXPOSE 8080
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=3 \
+	CMD curl -fsS -x "http://127.0.0.1:${ZAP_PORT}" http://zap/JSON/core/view/version/ || exit 1
+
+ENTRYPOINT ["/zap/zap-x.sh"]
+CMD ["-daemon", "-host", "0.0.0.0", "-port", "8080"]

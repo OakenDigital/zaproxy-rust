@@ -23,6 +23,7 @@
 mod phase5;
 mod phase6;
 mod phase8;
+mod phase9;
 mod scripts;
 
 use std::net::{IpAddr, SocketAddr};
@@ -174,6 +175,15 @@ async fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // PHASE-9: traditional spider on the default sender. No seed is crawled
+    // at startup. The AJAX spider is not included.
+    let spider = match phase9::start() {
+        Ok(spider) => spider,
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
     let config = ProxyConfig {
         listen: SocketAddr::new(ip, cli.port),
         ca_dir: cli.ca_dir.clone(),
@@ -217,6 +227,8 @@ async fn main() -> ExitCode {
     println!("Active scan: CRLF Injection (40003), XPath Injection (90021)");
     // PHASE-8
     println!("{}", phase8::startup_line(&addons));
+    // PHASE-9
+    println!("{}", phase9::startup_line(&spider));
     println!("Not an official OWASP ZAP build.");
 
     tokio::select! {

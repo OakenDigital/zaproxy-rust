@@ -21,6 +21,8 @@ zap-api.workspace = true
 # available. zapd does not name the sample rule.
 zap-addon.workspace = true
 zap-addon-sample.workspace = true
+# PHASE-9: traditional spider. AJAX spider is not included.
+zap-spider.workspace = true
 # PHASE-6: active scan engine and the two ascanrules ports.
 zap-ascan.workspace = true
 zap-auth.workspace = true

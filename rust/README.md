@@ -126,6 +126,14 @@ Two rules are ported from ascanrules v78 (the version pinned in `zap/src/main/ma
 
 CRLF Injection sends tamper payloads and alerts when the response headers contain `Set-Cookie: Tamper=<token>`. XPath Injection sends `"'`, `<!--`, and `]]>` and alerts when the response body contains an XPath error that the original response did not. Alerts are written to the session with the same plugin id, risk, confidence, CWE, WASC, param, and URL.
 
+## Traditional spider
+
+The spider is `zap-spider`, ported from spider 0.18.0 (the version pinned in `zap/src/main/main-add-ons.yml`). The Java add-on is not vendored. The AJAX spider is not included.
+
+One seed URL is fetched, plus `/robots.txt` and `/sitemap.xml` on that host. HTML links, forms (GET and POST), redirects, comments, and sitemap locations are followed. The default max depth is 5. Depth 0 is unlimited. A context uses the phase 5 include and exclude regexes: a URL outside the context is not fetched.
+
+`zapd` builds the spider on the default sender at startup and does not crawl until a seed is provided.
+
 ## Add-ons
 
 The registry is `zap-addon`. A manifest is a JSON file named `*.addon.json`

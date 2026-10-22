@@ -32,7 +32,7 @@ use zap_desktop::{launch, DesktopConfig};
 #[derive(Parser, Debug)]
 #[command(
     name = "zap-desktop",
-    about = "Sites, history, messages, alerts, and break. Not an official OWASP ZAP build."
+    about = "Sites, history, messages, alerts, break, spider, and active scan. Not an official OWASP ZAP build."
 )]
 struct Cli {
     /// Print the version and exit.
@@ -98,6 +98,7 @@ async fn main() -> ExitCode {
         desktop.ui_addr()
     );
     println!("Break is off until you turn it on in the UI.");
+    println!("Start a traditional spider or an active scan from the page. The AJAX spider is not included.");
     println!("Not an official OWASP ZAP build. zapd does not include this UI.");
     if tokio::signal::ctrl_c().await.is_err() {
         eprintln!("zap-desktop: failed to wait for interrupt");

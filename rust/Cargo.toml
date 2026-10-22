@@ -12,7 +12,19 @@ resolver = "2"
 # authentication, and cookie session management. Send-as-user is
 # UpstreamClient::send_as_user in zap-http. This phase does not include
 # the active scanner.
-members = ["zap-core", "zap-http", "zap-proxy", "zap-store", "zap-api", "zap-pscan", "zap-script", "zap-auth", "zapd"]
+members = [
+    "zap-core",
+    "zap-http",
+    "zap-proxy",
+    "zap-store",
+    "zap-api",
+    "zap-pscan",
+    "zap-script",
+    "zap-auth",
+    # PHASE-6: active scan engine and the two ascanrules ports.
+    "zap-ascan",
+    "zapd",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -43,6 +55,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 webpki-roots = "0.26"
 zap-api = { path = "zap-api" }
+# PHASE-6: active scan engine and the two ascanrules ports.
+zap-ascan = { path = "zap-ascan" }
 zap-auth = { path = "zap-auth" }
 zap-core = { path = "zap-core" }
 zap-http = { path = "zap-http" }

@@ -21,6 +21,7 @@
 #![forbid(unsafe_code)]
 
 mod phase5;
+mod phase6;
 mod scripts;
 
 use std::net::{IpAddr, SocketAddr};
@@ -148,6 +149,15 @@ async fn main() -> ExitCode {
         env!("CARGO_PKG_VERSION"),
         on_shutdown,
     ));
+    // PHASE-6: active scan on the default sender. Routes live in phase6.rs.
+    // No forced user and no login. Do not fold this into the core API crate.
+    let ascan = match phase6::start(Arc::clone(&session)) {
+        Ok(ascan) => ascan,
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
     let config = ProxyConfig {
         listen: SocketAddr::new(ip, cli.port),
         ca_dir: cli.ca_dir.clone(),
@@ -155,7 +165,7 @@ async fn main() -> ExitCode {
         listeners,
         extra_root_pems: Vec::new(),
         history: Some(history),
-        early_override: Some(Arc::new(move |message| api.handle(message))),
+        early_override: Some(phase6::early_override(api, ascan)),
     };
 
     let proxy = match Proxy::start(config).await {
@@ -184,6 +194,8 @@ async fn main() -> ExitCode {
     // cookie session management, and send-as-user. The line is printed from
     // `phase5` so this function stays the proxy startup path.
     println!("{}", phase5::startup_line());
+    // PHASE-6
+    println!("Active scan: CRLF Injection (40003), XPath Injection (90021)");
     println!("Not an official OWASP ZAP build.");
 
     tokio::select! {

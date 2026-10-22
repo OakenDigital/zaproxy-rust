@@ -9,7 +9,8 @@ in order and may mutate a message, supply a response (the origin is not
 contacted), or stop later listeners. After history is recorded, a passive-scan
 queue runs one header rule: X-Content-Type-Options (plugin id 10021). A
 JavaScript host runs `proxy` and `httpsender` scripts. Form and JSON logins
-send a follow-up request as a user. There is no active scan.
+send a follow-up request as a user. An active scan can be started on the
+default HTTP sender.
 
 The Java tree in the repository root is unchanged and remains the behavioral
 spec.
@@ -58,6 +59,16 @@ objects are JSON strings inside the array, matching the ZAP API. No API key
 is required. `core/action/shutdown` returns, then ends the process.
 `http://zap/` is answered before listeners run, so those calls are not scanned.
 
+Active scan uses the same host, before the core routes:
+
+| Route | Body |
+| --- | --- |
+| `GET http://zap/JSON/ascan/action/scan/?url=http://example.com/` | `{"scan":"0"}` |
+| `GET http://zap/JSON/ascan/view/status/?scanId=0` | `{"status":"100"}` |
+| `GET http://zap/JSON/ascan/action/stop/?scanId=0` | `{"Result":"OK"}` |
+
+`scan` accepts `url` (required), `method`, `postData`, and `recurse`. `recurse=false` is recorded; this phase attacks the seed message only. Progress is `0`–`100`. `stop` sets progress to `100` and sends no further requests. Unknown scan ids return `does_not_exist`.
+
 ## Passive scan
 
 The queue is a proxy listener at order 5001, one after history. It runs on the
@@ -98,6 +109,21 @@ posts `application/x-www-form-urlencoded` and JSON login posts
 `application/json`, replacing `{%username%}` and `{%password%}`. Cookie session
 management keeps `Set-Cookie` from the login response. `send-as-user` on the
 HTTP client logs in once, then sends the follow-up request with those cookies.
+
+## Active scan
+
+The engine is `zap-ascan`. One host process runs the enabled rules at the policy strength (default medium) and threshold (default medium). Threshold OFF skips a rule. A per-plugin threshold overrides the policy. Stop is checked before each request; a stopped scan does not call the sender again.
+
+Variants inject one parameter at a time in URL query strings, `application/x-www-form-urlencoded` bodies, and `application/json` bodies. Other variants are not implemented.
+
+Two rules are ported from ascanrules v78 (the version pinned in `zap/src/main/main-add-ons.yml`). The Java add-on is not vendored.
+
+| Plugin | Id | Risk | Confidence | CWE | WASC |
+| --- | --- | --- | --- | --- | --- |
+| CRLF Injection | 40003 | medium (2) | medium (2) | 113 | 25 |
+| XPath Injection | 90021 | high (3) | high (3) | 643 | 39 |
+
+CRLF Injection sends tamper payloads and alerts when the response headers contain `Set-Cookie: Tamper=<token>`. XPath Injection sends `"'`, `<!--`, and `]]>` and alerts when the response body contains an XPath error that the original response did not. Alerts are written to the session with the same plugin id, risk, confidence, CWE, WASC, param, and URL.
 
 ## Listeners
 

@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+mod phase11;
 mod phase5;
 mod phase6;
 mod phase8;
@@ -37,7 +38,6 @@ use tokio::sync::watch;
 use zap_api::ApiService;
 use zap_core::InMemoryHistory;
 use zap_proxy::{LoggingListener, Proxy, ProxyConfig, ProxyListener};
-use zap_pscan::PassiveScanListener;
 use zap_store::{Session, SessionHistoryListener};
 
 #[derive(Parser, Debug)]
@@ -130,10 +130,19 @@ async fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // PHASE-11: one passive listener for the proxy and for packaged-scan
+    // fetches. Baseline counts cover plugin 10021 only.
+    let (packaged, pscan) = match phase11::start(Arc::clone(&session)) {
+        Ok(started) => started,
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
     let listeners: Vec<Arc<dyn ProxyListener>> = vec![
         Arc::new(LoggingListener::new(0)),
         Arc::new(SessionHistoryListener::new(Arc::clone(&session))),
-        Arc::new(PassiveScanListener::new(Arc::clone(&session))),
+        Arc::clone(&pscan) as Arc<dyn ProxyListener>,
     ];
     // PHASE-7: Boa script host. Types `proxy` and `httpsender`.
     // Hooks: proxyRequest, proxyResponse, sendingRequest, responseReceived.
@@ -192,7 +201,7 @@ async fn main() -> ExitCode {
         extra_root_pems: Vec::new(),
         history: Some(history),
         early_override: Some(phase8::chain(
-            phase6::early_override(api, ascan),
+            phase11::chain(phase6::early_override(api, ascan), packaged),
             Arc::clone(&addons),
         )),
     };
@@ -229,6 +238,8 @@ async fn main() -> ExitCode {
     println!("{}", phase8::startup_line(&addons));
     // PHASE-9
     println!("{}", phase9::startup_line(&spider));
+    // PHASE-11
+    println!("{}", phase11::startup_line());
     println!("Not an official OWASP ZAP build.");
 
     tokio::select! {

@@ -31,9 +31,7 @@ zap-proxy.workspace = true
 zap-pscan.workspace = true
 zap-script.workspace = true
 zap-store.workspace = true
-
-[dev-dependencies]
-# PHASE-6: types used by the ascan wiring test.
+# PHASE-11: packaged scan records spider and accessUrl responses.
 bytes.workspace = true
 http.workspace = true
 serde_json.workspace = true

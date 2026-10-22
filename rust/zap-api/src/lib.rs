@@ -33,6 +33,8 @@ pub const ROUTES: &[&str] = &[
     "GET http://zap/JSON/core/view/version/",
     "GET http://zap/JSON/core/view/hosts/",
     "GET http://zap/JSON/core/view/messages/",
+    "GET http://zap/JSON/core/view/urls/",
+    "GET http://zap/JSON/core/view/alerts/",
     "GET http://zap/JSON/core/action/shutdown/",
     "GET http://zap/JSON/alert/view/alerts/",
     "GET http://zap/JSON/alert/view/alert/?id=",

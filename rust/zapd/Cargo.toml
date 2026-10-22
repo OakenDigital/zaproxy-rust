@@ -17,6 +17,10 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 zap-api.workspace = true
+# PHASE-8: add-on registry. The sample crate is linked so its factory is
+# available. zapd does not name the sample rule.
+zap-addon.workspace = true
+zap-addon-sample.workspace = true
 # PHASE-6: active scan engine and the two ascanrules ports.
 zap-ascan.workspace = true
 zap-auth.workspace = true

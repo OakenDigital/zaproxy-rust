@@ -2235,6 +2235,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "zap-addon"
+version = "0.1.0"
+dependencies = [
+ "semver",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
+ "zap-core",
+ "zap-pscan",
+ "zap-store",
+]
+
+[[package]]
+name = "zap-addon-sample"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "http",
+ "serde_json",
+ "zap-addon",
+ "zap-core",
+ "zap-pscan",
+ "zap-store",
+]
+
+[[package]]
 name = "zap-api"
 version = "0.1.0"
 dependencies = [
@@ -2375,6 +2401,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "zap-addon",
+ "zap-addon-sample",
  "zap-api",
  "zap-ascan",
  "zap-auth",

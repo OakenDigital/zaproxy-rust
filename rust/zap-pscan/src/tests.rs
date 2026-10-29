@@ -16,7 +16,7 @@
 // and the architecture (Apache License 2.0, section 4). It is not an
 // official OWASP ZAP build.
 
-//! Unit tests for the queue, the X-Content-Type-Options rule, and threshold OFF.
+//! Unit tests for the queue, the header rule, disclosure rules, and threshold OFF.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -26,6 +26,14 @@ use http::{HeaderMap, Method, StatusCode};
 use zap_core::{HttpMessage, HttpResponse, ProxyListener, HISTORY_LISTENER_ORDER};
 use zap_store::{NewAlert, Session};
 
+use crate::rules::disclosure::{
+    DebugErrorsScanRule, DirectoryBrowsingScanRule, InPageBannerScanRule,
+    SuspiciousCommentsScanRule, XBackendServerScanRule, XChromeLoggerScanRule, XDebugTokenScanRule,
+    BACKEND_SERVER_ID, BACKEND_SERVER_NAME, BANNER_ID, BANNER_NAME, CHROME_LOGGER_ID,
+    CHROME_LOGGER_NAME, DEBUG_ERRORS_ID, DEBUG_ERRORS_NAME, DEBUG_TOKEN_ID, DEBUG_TOKEN_NAME,
+    DIRECTORY_BROWSING_ID, DIRECTORY_BROWSING_NAME, SUSPICIOUS_COMMENTS_ID,
+    SUSPICIOUS_COMMENTS_NAME,
+};
 use crate::rules::x_content_type_options::{XContentTypeOptionsScanRule, HEADER_NAME, PLUGIN_ID};
 use crate::scanner::PassiveScanner;
 use crate::threshold::{AlertThreshold, ScannerState};
@@ -338,4 +346,334 @@ fn low_threshold_includes_error_and_redirect_bodies() {
         assert_eq!(alerts[0].plugin_id, 10021);
         assert_eq!(alerts[0].url, "http://example.test/low");
     }
+}
+
+fn typed(value: &'static str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(http::header::CONTENT_TYPE, value.parse().unwrap());
+    headers
+}
+
+struct Expect {
+    id: i32,
+    name: &'static str,
+    risk: i32,
+    confidence: i32,
+    cwe: i32,
+    wasc: i32,
+}
+
+fn assert_disclosure(alert: &NewAlert, expect: Expect, url: &str) {
+    assert_eq!(alert.plugin_id, expect.id);
+    assert_eq!(alert.name, expect.name);
+    assert_eq!(alert.risk, expect.risk);
+    assert_eq!(alert.confidence, expect.confidence);
+    assert_eq!(alert.cwe_id, expect.cwe);
+    assert_eq!(alert.wasc_id, expect.wasc);
+    assert_eq!(alert.param, "");
+    assert_eq!(alert.url, url);
+}
+
+#[test]
+fn directory_listing_bodies_raise_medium_directory_browsing() {
+    let rule = DirectoryBrowsingScanRule::new();
+    let url = "http://example.test/files/";
+    let apache = b"<html><title>Index of /files/</title></html>";
+    let alerts = rule.scan_http_response(&fixture(url, StatusCode::OK, HeaderMap::new(), apache));
+    assert_eq!(alerts.len(), 1);
+    assert_disclosure(
+        &alerts[0],
+        Expect {
+            id: DIRECTORY_BROWSING_ID,
+            name: DIRECTORY_BROWSING_NAME,
+            risk: 2,
+            confidence: 2,
+            cwe: 548,
+            wasc: 16,
+        },
+        url,
+    );
+
+    let iis = b"<pre><A HREF=\"/\">[To Parent Directory]</A><br><br>";
+    let iis_alerts = rule.scan_http_response(&fixture(url, StatusCode::OK, HeaderMap::new(), iis));
+    assert_eq!(iis_alerts.len(), 1);
+    assert_eq!(iis_alerts[0].plugin_id, 10033);
+    assert_eq!(iis_alerts[0].wasc_id, 16);
+
+    let plain = b"<html><body><a href=\"/page\">page</a></body></html>";
+    assert!(rule
+        .scan_http_response(&fixture(url, StatusCode::OK, HeaderMap::new(), plain))
+        .is_empty());
+}
+
+#[test]
+fn debug_error_text_raises_low_and_skips_script_at_medium() {
+    let rule = DebugErrorsScanRule::new();
+    let url = "http://example.test/debug";
+    let alerts = rule.scan_http_response(&fixture(
+        url,
+        StatusCode::OK,
+        typed("text/html"),
+        b"php warning: headers already sent",
+    ));
+    assert_eq!(alerts.len(), 1);
+    assert_disclosure(
+        &alerts[0],
+        Expect {
+            id: DEBUG_ERRORS_ID,
+            name: DEBUG_ERRORS_NAME,
+            risk: 1,
+            confidence: 2,
+            cwe: 1295,
+            wasc: 13,
+        },
+        url,
+    );
+
+    assert!(rule
+        .scan_http_response(&fixture(
+            url,
+            StatusCode::OK,
+            HeaderMap::new(),
+            b"PHP Warning: x",
+        ))
+        .is_empty());
+
+    let script = fixture(
+        url,
+        StatusCode::OK,
+        typed("application/javascript"),
+        b"PHP Warning: x",
+    );
+    assert!(rule.scan_http_response(&script).is_empty());
+    rule.set_threshold(AlertThreshold::Low);
+    assert_eq!(rule.scan_http_response(&script).len(), 1);
+}
+
+#[test]
+fn suspicious_comments_use_medium_for_html_and_low_for_script() {
+    let rule = SuspiciousCommentsScanRule::new();
+    let url = "http://example.test/comments";
+    let html = rule.scan_http_response(&fixture(
+        url,
+        StatusCode::OK,
+        typed("text/html"),
+        b"<html><!-- TODO and FIXME --></html>",
+    ));
+    assert_eq!(html.len(), 2);
+    for alert in &html {
+        assert_disclosure(
+            alert,
+            Expect {
+                id: SUSPICIOUS_COMMENTS_ID,
+                name: SUSPICIOUS_COMMENTS_NAME,
+                risk: 0,
+                confidence: 2,
+                cwe: 615,
+                wasc: 13,
+            },
+            url,
+        );
+    }
+
+    let script = rule.scan_http_response(&fixture(
+        url,
+        StatusCode::OK,
+        typed("text/html"),
+        b"<html><script>var x = 1; // FIXME</script></html>",
+    ));
+    assert_eq!(script.len(), 1);
+    assert_eq!(script[0].plugin_id, 10027);
+    assert_eq!(script[0].confidence, 1);
+    assert_eq!(script[0].risk, 0);
+
+    assert!(rule
+        .scan_http_response(&fixture(
+            url,
+            StatusCode::OK,
+            typed("text/html"),
+            b"<p>TODO outside a comment</p>",
+        ))
+        .is_empty());
+    assert!(rule
+        .scan_http_response(&fixture(
+            url,
+            StatusCode::OK,
+            typed("text/font"),
+            b"<!-- TODO -->",
+        ))
+        .is_empty());
+}
+
+#[test]
+fn in_page_banner_matches_error_pages_and_low_threshold_success() {
+    let rule = InPageBannerScanRule::new();
+    let url = "http://example.test/banner";
+    let missing = fixture(
+        url,
+        StatusCode::NOT_FOUND,
+        HeaderMap::new(),
+        b"nginx/1.18.0",
+    );
+    let alerts = rule.scan_http_response(&missing);
+    assert_eq!(alerts.len(), 1);
+    assert_disclosure(
+        &alerts[0],
+        Expect {
+            id: BANNER_ID,
+            name: BANNER_NAME,
+            risk: 1,
+            confidence: 3,
+            cwe: 497,
+            wasc: 13,
+        },
+        url,
+    );
+
+    let ok = fixture(url, StatusCode::OK, typed("text/html"), b"Apache/2.4.41");
+    assert!(rule.scan_http_response(&ok).is_empty());
+    rule.set_threshold(AlertThreshold::Low);
+    let low = rule.scan_http_response(&ok);
+    assert_eq!(low.len(), 1);
+    assert_eq!(low[0].plugin_id, 10009);
+    assert_eq!(low[0].confidence, 3);
+}
+
+#[test]
+fn backend_and_chrome_logger_alert_once_per_header_value() {
+    let url = "http://example.test/headers";
+    let mut backend = HeaderMap::new();
+    backend.append("x-backend-server", "app-a".parse().unwrap());
+    backend.append("x-backend-server", "app-b".parse().unwrap());
+    let alerts = XBackendServerScanRule::new().scan_http_response(&fixture(
+        url,
+        StatusCode::OK,
+        backend,
+        b"ok",
+    ));
+    assert_eq!(alerts.len(), 2);
+    for alert in &alerts {
+        assert_disclosure(
+            alert,
+            Expect {
+                id: BACKEND_SERVER_ID,
+                name: BACKEND_SERVER_NAME,
+                risk: 1,
+                confidence: 2,
+                cwe: 497,
+                wasc: 13,
+            },
+            url,
+        );
+    }
+    assert!(XBackendServerScanRule::new()
+        .scan_http_response(&fixture(url, StatusCode::OK, HeaderMap::new(), b"ok"))
+        .is_empty());
+
+    let mut chrome = HeaderMap::new();
+    chrome.insert("x-chromelogger-data", "eyJkYXRhIjoxfQ==".parse().unwrap());
+    chrome.insert("x-chromephp-data", "eyJkYXRhIjoyfQ==".parse().unwrap());
+    let chrome_alerts = XChromeLoggerScanRule::new().scan_http_response(&fixture(
+        url,
+        StatusCode::OK,
+        chrome,
+        b"ok",
+    ));
+    assert_eq!(chrome_alerts.len(), 2);
+    for alert in &chrome_alerts {
+        assert_disclosure(
+            alert,
+            Expect {
+                id: CHROME_LOGGER_ID,
+                name: CHROME_LOGGER_NAME,
+                risk: 2,
+                confidence: 3,
+                cwe: 532,
+                wasc: 13,
+            },
+            url,
+        );
+    }
+}
+
+#[test]
+fn debug_token_raises_one_alert_when_either_header_is_present() {
+    let rule = XDebugTokenScanRule::new();
+    let url = "http://example.test/profiler";
+    let mut link = HeaderMap::new();
+    link.insert("x-debug-token-link", "/_profiler/abc".parse().unwrap());
+    let alerts = rule.scan_http_response(&fixture(url, StatusCode::OK, link, b"ok"));
+    assert_eq!(alerts.len(), 1);
+    assert_disclosure(
+        &alerts[0],
+        Expect {
+            id: DEBUG_TOKEN_ID,
+            name: DEBUG_TOKEN_NAME,
+            risk: 1,
+            confidence: 3,
+            cwe: 489,
+            wasc: 13,
+        },
+        url,
+    );
+
+    let mut both = HeaderMap::new();
+    both.insert("x-debug-token", "abc".parse().unwrap());
+    both.insert("x-debug-token-link", "/_profiler/abc".parse().unwrap());
+    assert_eq!(
+        rule.scan_http_response(&fixture(url, StatusCode::OK, both, b"ok"))
+            .len(),
+        1
+    );
+    assert!(rule
+        .scan_http_response(&fixture(url, StatusCode::OK, HeaderMap::new(), b"ok"))
+        .is_empty());
+}
+
+#[test]
+fn listener_adds_directory_browsing_without_matching_the_plain_fixture() {
+    let (dir, session) = temp_session();
+    let listener = PassiveScanListener::new(Arc::clone(&session));
+    let url = "http://example.test/listing";
+    let mut listing = fixture(
+        url,
+        StatusCode::OK,
+        HeaderMap::new(),
+        b"<title>Index of /listing/</title>",
+    );
+    assert!(listener.on_http_response_receive(&mut listing));
+    let ids: Vec<i32> = session
+        .alerts()
+        .unwrap()
+        .iter()
+        .map(|alert| alert.plugin_id)
+        .collect();
+    assert_eq!(ids, vec![10021, 10033]);
+    let listing_alert = session
+        .alerts()
+        .unwrap()
+        .into_iter()
+        .find(|alert| alert.plugin_id == 10033)
+        .unwrap();
+    assert_eq!(listing_alert.risk, 2);
+    assert_eq!(listing_alert.confidence, 2);
+    assert_eq!(listing_alert.cwe_id, 548);
+    assert_eq!(listing_alert.wasc_id, 16);
+    assert_eq!(listing_alert.param, "");
+    assert_eq!(listing_alert.url, url);
+
+    let (clean_dir, clean_session) = temp_session();
+    let clean = PassiveScanListener::new(Arc::clone(&clean_session));
+    let mut headers = typed("text/html");
+    headers.insert(HEADER_NAME, "nosniff".parse().unwrap());
+    let mut page = fixture(
+        "http://example.test/clean",
+        StatusCode::OK,
+        headers,
+        b"<html><body>ok</body></html>",
+    );
+    assert!(clean.on_http_response_receive(&mut page));
+    assert!(clean_session.alerts().unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(clean_dir);
 }

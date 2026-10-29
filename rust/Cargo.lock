@@ -2335,6 +2335,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "http",
+ "regex",
  "serde_json",
  "tokio",
  "tracing",
@@ -2428,6 +2429,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "http",
+ "regex",
  "tokio",
  "tracing",
  "zap-core",

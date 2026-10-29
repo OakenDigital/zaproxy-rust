@@ -20,8 +20,9 @@
 //!
 //! Not an official OWASP ZAP build. Variants cover URL query, form body,
 //! and JSON. One host process runs the enabled rules with a strength, a
-//! threshold, and a stop flag. The two rules are CRLF Injection (40003)
-//! and XPath Injection (90021) from ascanrules v78. The Java add-on is not
+//! threshold, and a stop flag. The rules from ascanrules v78 are CRLF
+//! Injection (40003), XPath Injection (90021), reflected XSS (40012), SQL
+//! injection (40018), and directory browsing (0). The Java add-on is not
 //! included. Scans use the caller-supplied sender; `zapd` passes the
 //! default client. There is no forced user and no login.
 
@@ -41,8 +42,10 @@ pub use context::{ActivePlugin, RaisedAlert, ScanContext, SendError};
 pub use engine::{host_key, Engine, ScanOptions};
 pub use policy::{AlertThreshold, AttackStrength, Policy};
 pub use rules::{
-    CrlfInjectionScanRule, XpathInjectionScanRule, CRLF_NAME, CRLF_PLUGIN_ID, XPATH_NAME,
-    XPATH_PLUGIN_ID,
+    CrlfInjectionScanRule, CrossSiteScriptingScanRule, DirectoryBrowsingScanRule,
+    SqlInjectionScanRule, XpathInjectionScanRule, CRLF_NAME, CRLF_PLUGIN_ID, DIRECTORY_NAME,
+    DIRECTORY_PLUGIN_ID, SQLI_NAME, SQLI_PLUGIN_ID, XPATH_NAME, XPATH_PLUGIN_ID, XSS_NAME,
+    XSS_PLUGIN_ID,
 };
 pub use sender::{DefaultSender, ScanSender};
 pub use variant::{variants_for, Variant};

@@ -26,6 +26,10 @@ use zap_core::{HttpMessage, ProxyListener};
 use zap_store::Session;
 
 use crate::queue::{PassiveScanQueue, PASSIVE_SCAN_LISTENER_ORDER};
+use crate::rules::disclosure::{
+    DebugErrorsScanRule, DirectoryBrowsingScanRule, InPageBannerScanRule,
+    SuspiciousCommentsScanRule, XBackendServerScanRule, XChromeLoggerScanRule, XDebugTokenScanRule,
+};
 use crate::rules::x_content_type_options::XContentTypeOptionsScanRule;
 use crate::threshold::AlertThreshold;
 
@@ -41,6 +45,13 @@ impl PassiveScanListener {
     pub fn new(session: Arc<Session>) -> Self {
         let queue = PassiveScanQueue::new();
         queue.add_scanner(Arc::new(XContentTypeOptionsScanRule::new()));
+        queue.add_scanner(Arc::new(DirectoryBrowsingScanRule::new()));
+        queue.add_scanner(Arc::new(DebugErrorsScanRule::new()));
+        queue.add_scanner(Arc::new(SuspiciousCommentsScanRule::new()));
+        queue.add_scanner(Arc::new(InPageBannerScanRule::new()));
+        queue.add_scanner(Arc::new(XBackendServerScanRule::new()));
+        queue.add_scanner(Arc::new(XChromeLoggerScanRule::new()));
+        queue.add_scanner(Arc::new(XDebugTokenScanRule::new()));
         Self { queue, session }
     }
 

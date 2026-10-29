@@ -25,6 +25,8 @@ zap-addon-sample.workspace = true
 zap-spider.workspace = true
 # PHASE-6: active scan engine and the two ascanrules ports.
 zap-ascan.workspace = true
+# YAML automation plans (-autorun). No JDK. No browser.
+zap-automation.workspace = true
 zap-auth.workspace = true
 zap-core.workspace = true
 # OpenAPI import. -openapi reads a local file. It is not downloaded.

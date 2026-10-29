@@ -39,6 +39,9 @@ members = [
     # OpenAPI 2 and 3 import. A local JSON or YAML file becomes spider seeds.
     # The definition is not downloaded.
     "zap-openapi",
+    # Automation plans: requestor, spider, passiveScan-wait, activeScan, report.
+    # No JDK. No browser. Release, Docker Hub, Sonar, and Crowdin are not included.
+    "zap-automation",
     "zapd",
 ]
 
@@ -88,6 +91,8 @@ zap-openapi = { path = "zap-openapi" }
 # with form or JSON login plus send-as-user. No new scan rules. No AJAX spider.
 # PHASE-6: active scan engine and the two ascanrules ports.
 zap-ascan = { path = "zap-ascan" }
+# YAML automation plans. No JDK. No browser.
+zap-automation = { path = "zap-automation" }
 zap-auth = { path = "zap-auth" }
 zap-core = { path = "zap-core" }
 # PHASE-10: optional desktop UI. zapd does not depend on this crate.

@@ -40,7 +40,7 @@ use zap_core::{
     headers_for_forwarding, plan_after_request, run_request_listeners, run_response_listeners,
     ChainFlow, ExcludeList, HttpMessage, HttpResponse, InMemoryHistory, ProxyListener,
 };
-use zap_http::{install_crypto_provider, UpstreamClient};
+use zap_http::{install_crypto_provider, is_websocket_handshake, UpstreamClient};
 
 use crate::listeners::HistoryListener;
 use crate::CertificateAuthority;
@@ -167,12 +167,12 @@ impl Proxy {
     }
 }
 
-struct State {
-    listeners: Vec<Arc<dyn ProxyListener>>,
-    exclude: ExcludeList,
-    upstream: UpstreamClient,
-    ca: CertificateAuthority,
-    early_override: Option<EarlyOverride>,
+pub(crate) struct State {
+    pub(crate) listeners: Vec<Arc<dyn ProxyListener>>,
+    pub(crate) exclude: ExcludeList,
+    pub(crate) upstream: UpstreamClient,
+    pub(crate) ca: CertificateAuthority,
+    pub(crate) early_override: Option<EarlyOverride>,
 }
 
 async fn accept_loop(
@@ -233,21 +233,7 @@ async fn handle_request(request: Request<Incoming>, state: Arc<State>) -> Respon
         Ok(uri) => uri,
         Err(err) => return client_response(&text_response(StatusCode::BAD_REQUEST, &err)),
     };
-    let method = request.method().clone();
-    let headers = request.headers().clone();
-    let body = match collect_limited(request.into_body()).await {
-        Ok(body) => body,
-        Err(err) => return client_response(&text_response(StatusCode::BAD_REQUEST, &err)),
-    };
-    let mut message = HttpMessage {
-        method,
-        uri,
-        headers,
-        body,
-        response: None,
-    };
-    let response = proxy_message(&mut message, &state).await;
-    client_response(&response)
+    dispatch(request, uri, &state).await
 }
 
 fn accept_connect(request: Request<Incoming>, state: Arc<State>) -> Response<Full<Bytes>> {
@@ -308,6 +294,7 @@ where
     if let Err(err) = http1::Builder::new()
         .auto_date_header(false)
         .serve_connection(io, service)
+        .with_upgrades()
         .await
     {
         tracing::debug!(%err, "tunneled connection ended");
@@ -323,6 +310,20 @@ async fn handle_tunneled(
         Ok(uri) => uri,
         Err(err) => return client_response(&text_response(StatusCode::BAD_REQUEST, &err)),
     };
+    dispatch(request, uri, state).await
+}
+
+async fn dispatch(
+    mut request: Request<Incoming>,
+    uri: Uri,
+    state: &State,
+) -> Response<Full<Bytes>> {
+    let upgrade = if is_websocket_handshake(request.method(), request.version(), request.headers())
+    {
+        Some(hyper::upgrade::on(&mut request))
+    } else {
+        None
+    };
     let method = request.method().clone();
     let headers = request.headers().clone();
     let body = match collect_limited(request.into_body()).await {
@@ -336,6 +337,11 @@ async fn handle_tunneled(
         body,
         response: None,
     };
+    if message.body.is_empty() {
+        if let Some(upgrade) = upgrade {
+            return crate::websocket::proxy_websocket(&mut message, upgrade, state).await;
+        }
+    }
     let response = proxy_message(&mut message, state).await;
     client_response(&response)
 }
@@ -430,7 +436,7 @@ async fn collect_limited(body: Incoming) -> Result<Bytes, String> {
     Ok(bytes)
 }
 
-fn text_response(status: StatusCode, message: &str) -> HttpResponse {
+pub(crate) fn text_response(status: StatusCode, message: &str) -> HttpResponse {
     let mut headers = HeaderMap::new();
     headers.insert(
         http::header::CONTENT_TYPE,
@@ -443,7 +449,7 @@ fn text_response(status: StatusCode, message: &str) -> HttpResponse {
     }
 }
 
-fn client_response(response: &HttpResponse) -> Response<Full<Bytes>> {
+pub(crate) fn client_response(response: &HttpResponse) -> Response<Full<Bytes>> {
     let mut headers = headers_for_forwarding(&response.headers);
     if let Ok(length) = HeaderValue::from_str(&response.body.len().to_string()) {
         headers.insert(http::header::CONTENT_LENGTH, length);

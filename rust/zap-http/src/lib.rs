@@ -21,11 +21,13 @@
 //! Outbound HTTP/1.1 client (hyper + rustls).
 //!
 //! Not an official OWASP ZAP build. Every upstream request gets a `Via`
-//! header; see [`INJECTED_HEADER_NAMES`].
+//! header; see [`INJECTED_HEADER_NAMES`]. A WebSocket opening handshake is
+//! sent with `Upgrade` kept intact; see [`UpstreamClient::open_websocket`].
 
 #![forbid(unsafe_code)]
 
 mod session;
+mod websocket;
 
 use std::io::Cursor;
 use std::time::Duration;
@@ -43,6 +45,7 @@ use thiserror::Error;
 use zap_core::{headers_for_forwarding, HttpMessage, HttpResponse};
 
 pub use session::SessionManagement;
+pub use websocket::{is_websocket_accept, is_websocket_handshake, WebSocketHandshake};
 
 /// Header names this client may add. Ignore them when diffing headers.
 /// Status and body are not rewritten.

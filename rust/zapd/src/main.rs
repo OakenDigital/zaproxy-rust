@@ -36,6 +36,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use tokio::sync::watch;
+use zap_ajax::AjaxSpider;
 use zap_api::ApiService;
 use zap_core::InMemoryHistory;
 use zap_openapi::spider_seeds;
@@ -84,6 +85,12 @@ struct Cli {
     /// The AJAX spider is not included.
     #[arg(long = "spider")]
     spider_seed: Vec<String>,
+
+    /// AJAX spider seed URL. Repeat to crawl another seed.
+    /// Also accepted as -ajaxspider. HTML links and inline script string
+    /// literals are followed. A browser runtime is not included.
+    #[arg(long = "ajaxspider")]
+    ajax_spider_seed: Vec<String>,
 
     /// JavaScript file for the Boa proxy and httpsender host.
     /// Repeat to load another file. Also accepted as -script.
@@ -161,6 +168,7 @@ where
             "-session" => "--session".to_string(),
             "-addon-dir" => "--addon-dir".to_string(),
             "-spider" => "--spider".to_string(),
+            "-ajaxspider" => "--ajaxspider".to_string(),
             "-script" => "--script".to_string(),
             "-context" => "--context".to_string(),
             "-auth-user" => "--auth-user".to_string(),
@@ -173,6 +181,39 @@ where
             other => other.to_string(),
         })
         .collect()
+}
+
+fn start_ajax_spiders(seeds: &[String], context: Option<zap_auth::Context>) -> Result<(), String> {
+    if seeds.is_empty() {
+        return Ok(());
+    }
+    let mut normalized = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        let seed = seed.trim();
+        if seed.is_empty() {
+            return Err("ajax spider seed is empty".to_string());
+        }
+        normalized.push(AjaxSpider::normalize_seed(seed)?);
+    }
+    let sender = Arc::new(zap_ajax::DefaultSender::from_current()?);
+    for seed in normalized {
+        let sender = Arc::clone(&sender);
+        let context = context.clone();
+        std::thread::spawn(move || {
+            let spider = AjaxSpider::new(sender);
+            match spider.crawl(&seed, context.as_ref()) {
+                Ok(urls) => {
+                    let count = urls.len();
+                    println!("ajax spider {seed} recorded {count} url(s)");
+                    for url in &urls {
+                        println!("ajax spider url {url}");
+                    }
+                }
+                Err(err) => eprintln!("zapd: ajax spider {seed}: {err}"),
+            }
+        });
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -359,6 +400,8 @@ async fn main() -> ExitCode {
     println!("{}", phase8::startup_line(&addons));
     // PHASE-9
     println!("{}", phase9::startup_line(&spider));
+    // AJAX spider. A browser runtime is not included.
+    println!("AJAX spider: {}", zap_ajax::SUMMARY);
     // PHASE-11
     println!("{}", phase11::startup_line());
     // META-ENGINE
@@ -377,6 +420,11 @@ async fn main() -> ExitCode {
             proxy.shutdown().await;
             return ExitCode::from(1);
         }
+    }
+    if let Err(err) = start_ajax_spiders(&cli.ajax_spider_seed, controls.context()) {
+        eprintln!("zapd: {err}");
+        proxy.shutdown().await;
+        return ExitCode::from(1);
     }
     for url in &cli.send_as_user {
         match controls.send_follow_up(url).await {
@@ -443,7 +491,7 @@ fn run_autorun(path: &std::path::Path, session_path: &std::path::Path) -> ExitCo
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_args, Cli};
+    use super::{normalize_args, start_ajax_spiders, Cli};
     use clap::Parser;
     use std::path::PathBuf;
 
@@ -547,6 +595,22 @@ mod tests {
             "plan.yaml".to_string(),
         ]));
         assert_eq!(cli.autorun, Some(PathBuf::from("plan.yaml")));
+    }
+
+    #[test]
+    fn ajaxspider_flag_sets_the_seed() {
+        let cli = Cli::parse_from(normalize_args([
+            "zapd".to_string(),
+            "-ajaxspider".to_string(),
+            "http://127.0.0.1/app/".to_string(),
+        ]));
+        assert_eq!(cli.ajax_spider_seed, ["http://127.0.0.1/app/"]);
+    }
+
+    #[test]
+    fn empty_ajaxspider_seed_is_rejected() {
+        let err = start_ajax_spiders(&[String::new()], None).unwrap_err();
+        assert_eq!(err, "ajax spider seed is empty");
     }
 
     #[test]

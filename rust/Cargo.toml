@@ -33,6 +33,9 @@ members = [
     "zap-scanrules",
     # PHASE-9: traditional spider (spider 0.18.0). AJAX spider is not included.
     "zap-spider",
+    # AJAX spider without a browser runtime. HTML links and inline script
+    # string literals. Chrome, Firefox, and WebDriver are not started.
+    "zap-ajax",
     # PHASE-10: optional desktop (sites, history, request/response, alerts, break).
     # zapd does not depend on this crate, so the daemon still runs without the UI.
     "zap-desktop",
@@ -80,6 +83,8 @@ zap-addon = { path = "zap-addon" }
 zap-addon-sample = { path = "zap-addon-sample" }
 # PHASE-9: traditional spider (spider 0.18.0). AJAX spider is not included.
 zap-spider = { path = "zap-spider" }
+# AJAX spider without a browser runtime.
+zap-ajax = { path = "zap-ajax" }
 # OpenAPI 2 and 3 import from a local JSON or YAML file.
 # Definitions are not downloaded.
 zap-openapi = { path = "zap-openapi" }

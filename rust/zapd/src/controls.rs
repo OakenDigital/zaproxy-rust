@@ -18,10 +18,11 @@
 
 //! META-ENGINE controls for features that already exist.
 //!
-//! `zapd` can start a traditional spider seed, load a JavaScript file into
-//! the Boa `proxy` and `httpsender` host, and load a ZAP context file so
-//! form or JSON login plus send-as-user can run. The AJAX spider is not
-//! included. `AlertOnHttpResponseCodeErrors.js` still does not run.
+//! `zapd` can start a traditional spider seed, start an AJAX spider seed
+//! (HTML links and inline script string literals; a browser runtime is not
+//! included), load a JavaScript file into the Boa `proxy` and `httpsender`
+//! host, and load a ZAP context file so form or JSON login plus send-as-user
+//! can run. `AlertOnHttpResponseCodeErrors.js` still does not run.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -123,6 +124,11 @@ impl EngineControls {
 
     pub fn start_spider(&self, url: &str) -> Result<u64, String> {
         self.packaged.start_seed(url)
+    }
+
+    /// Context loaded by `-context`, if any.
+    pub fn context(&self) -> Option<Context> {
+        self.context.lock().ok().and_then(|guard| guard.clone())
     }
 
     /// Form or JSON login from the loaded context, then the follow-up request.
@@ -352,7 +358,7 @@ pub fn chain(inner: EarlyOverride, controls: Arc<EngineControls>) -> EarlyOverri
 }
 
 pub fn startup_line() -> &'static str {
-    "Engine controls: -spider seed, -script file (proxy and httpsender), -context file, -send-as-user URL; AJAX spider is not included"
+    "Engine controls: -spider seed, -ajaxspider seed (HTML and inline script literals; no browser runtime), -script file (proxy and httpsender), -context file, -send-as-user URL"
 }
 
 fn unknown(kind: Option<&str>) -> ApiError {

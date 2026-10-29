@@ -22,6 +22,8 @@
 //! Not an official OWASP ZAP build. Binds a port, forwards HTTP, tunnels
 //! `CONNECT` and terminates TLS with a CA written to disk, stores one
 //! in-memory history row per exchange, and runs an ordered listener chain.
+//! A valid WebSocket opening handshake is forwarded and the framed bytes
+//! are copied both ways; the history row is the handshake, not the frames.
 //! A caller can seed that history from a SQLite session and can answer
 //! `http://zap/` before the origin is contacted. This crate does not open
 //! the database or route the API itself.
@@ -31,6 +33,7 @@
 mod ca;
 mod listeners;
 mod server;
+mod websocket;
 
 pub use ca::CertificateAuthority;
 pub use listeners::{HistoryListener, LoggingListener};

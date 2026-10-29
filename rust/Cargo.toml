@@ -36,6 +36,9 @@ members = [
     # PHASE-10: optional desktop (sites, history, request/response, alerts, break).
     # zapd does not depend on this crate, so the daemon still runs without the UI.
     "zap-desktop",
+    # OpenAPI 2 and 3 import. A local JSON or YAML file becomes spider seeds.
+    # The definition is not downloaded.
+    "zap-openapi",
     "zapd",
 ]
 
@@ -74,6 +77,9 @@ zap-addon = { path = "zap-addon" }
 zap-addon-sample = { path = "zap-addon-sample" }
 # PHASE-9: traditional spider (spider 0.18.0). AJAX spider is not included.
 zap-spider = { path = "zap-spider" }
+# OpenAPI 2 and 3 import from a local JSON or YAML file.
+# Definitions are not downloaded.
+zap-openapi = { path = "zap-openapi" }
 # PHASE-11: docker/Dockerfile-zapd runs zapd. No JDK. Baseline counts cover
 # the passive rules ported so far (plugin 10021). The automation framework
 # and the AJAX spider are not in the image.

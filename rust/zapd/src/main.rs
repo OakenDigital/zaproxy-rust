@@ -38,6 +38,7 @@ use clap::Parser;
 use tokio::sync::watch;
 use zap_api::ApiService;
 use zap_core::InMemoryHistory;
+use zap_openapi::spider_seeds;
 use zap_proxy::{LoggingListener, Proxy, ProxyConfig, ProxyListener};
 use zap_store::{Session, SessionHistoryListener};
 
@@ -109,6 +110,35 @@ struct Cli {
     /// Repeat to send another follow-up. Also accepted as -send-as-user.
     #[arg(long = "send-as-user")]
     send_as_user: Vec<String>,
+
+    /// OpenAPI 2 or 3 JSON or YAML file. Each operation URL is added to the
+    /// traditional spider seed list. The method, URL, and body are the
+    /// active-scan seed (`method`, `url`, `postData`). Repeat to import
+    /// another file. Also accepted as -openapi. The file is read locally
+    /// and is not downloaded.
+    #[arg(long = "openapi")]
+    openapi: Vec<PathBuf>,
+
+    /// Base URL for -openapi. When set, it replaces servers in the file.
+    /// Also accepted as -openapi-target. This URL is not fetched.
+    #[arg(long = "openapi-target")]
+    openapi_target: Option<String>,
+}
+
+fn openapi_spider_seeds(paths: &[PathBuf], target: Option<&str>) -> Result<Vec<String>, String> {
+    let mut seeds = Vec::new();
+    for path in paths {
+        let requests = zap_openapi::import_path(path, target).map_err(|err| err.to_string())?;
+        for request in &requests {
+            println!("openapi {} {}", request.method, request.url);
+        }
+        for seed in spider_seeds(&requests) {
+            if !seeds.contains(&seed) {
+                seeds.push(seed);
+            }
+        }
+    }
+    Ok(seeds)
 }
 
 fn normalize_args<I>(args: I) -> Vec<String>
@@ -131,6 +161,8 @@ where
             "-auth-username" => "--auth-username".to_string(),
             "-auth-password" => "--auth-password".to_string(),
             "-send-as-user" => "--send-as-user".to_string(),
+            "-openapi" => "--openapi".to_string(),
+            "-openapi-target" => "--openapi-target".to_string(),
             other => other.to_string(),
         })
         .collect()
@@ -144,6 +176,14 @@ async fn main() -> ExitCode {
         println!("Not an official OWASP ZAP build.");
         return ExitCode::SUCCESS;
     }
+
+    let openapi_seeds = match openapi_spider_seeds(&cli.openapi, cli.openapi_target.as_deref()) {
+        Ok(seeds) => seeds,
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -312,7 +352,13 @@ async fn main() -> ExitCode {
     println!("{}", controls::startup_line());
     println!("Not an official OWASP ZAP build.");
 
-    for seed in &cli.spider_seed {
+    let mut seeds = cli.spider_seed.clone();
+    for seed in openapi_seeds {
+        if !seeds.contains(&seed) {
+            seeds.push(seed);
+        }
+    }
+    for seed in &seeds {
         if let Err(err) = controls.start_spider(seed) {
             eprintln!("zapd: {err}");
             proxy.shutdown().await;
@@ -427,6 +473,23 @@ mod tests {
         assert_eq!(cli.auth_username.as_deref(), Some("alice"));
         assert_eq!(cli.auth_password.as_deref(), Some("secret"));
         assert_eq!(cli.send_as_user, ["http://127.0.0.1/private"]);
+    }
+
+    #[test]
+    fn openapi_flag_points_at_a_local_file() {
+        let cli = Cli::parse_from(normalize_args([
+            "zapd".to_string(),
+            "-openapi".to_string(),
+            "petstore.yaml".to_string(),
+            "-openapi-target".to_string(),
+            "http://127.0.0.1:8080/api".to_string(),
+        ]));
+        assert_eq!(cli.openapi, [PathBuf::from("petstore.yaml")]);
+        assert_eq!(
+            cli.openapi_target.as_deref(),
+            Some("http://127.0.0.1:8080/api")
+        );
+        assert!(cli.spider_seed.is_empty());
     }
 
     #[test]

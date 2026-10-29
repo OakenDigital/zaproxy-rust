@@ -2382,6 +2382,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "zap-automation"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "http",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "tokio",
+ "zap-ascan",
+ "zap-auth",
+ "zap-core",
+ "zap-http",
+ "zap-pscan",
+ "zap-spider",
+ "zap-store",
+]
+
+[[package]]
 name = "zap-core"
 version = "0.1.0"
 dependencies = [
@@ -2544,6 +2564,7 @@ dependencies = [
  "zap-api",
  "zap-ascan",
  "zap-auth",
+ "zap-automation",
  "zap-core",
  "zap-http",
  "zap-openapi",

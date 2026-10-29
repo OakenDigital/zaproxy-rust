@@ -123,6 +123,12 @@ struct Cli {
     /// Also accepted as -openapi-target. This URL is not fetched.
     #[arg(long = "openapi-target")]
     openapi_target: Option<String>,
+
+    /// YAML automation plan to run, then exit. Also accepted as -autorun.
+    /// Jobs include requestor, spider, passiveScan-wait, activeScan, and
+    /// report. No JDK and no browser.
+    #[arg(long = "autorun")]
+    autorun: Option<PathBuf>,
 }
 
 fn openapi_spider_seeds(paths: &[PathBuf], target: Option<&str>) -> Result<Vec<String>, String> {
@@ -163,6 +169,7 @@ where
             "-send-as-user" => "--send-as-user".to_string(),
             "-openapi" => "--openapi".to_string(),
             "-openapi-target" => "--openapi-target".to_string(),
+            "-autorun" => "--autorun".to_string(),
             other => other.to_string(),
         })
         .collect()
@@ -190,6 +197,12 @@ async fn main() -> ExitCode {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+
+    if let Some(path) = &cli.autorun {
+        // The default senders block on the runtime handle, so the plan runs
+        // off this thread. The runtime stays alive until the worker joins.
+        return run_autorun(path, &cli.session);
+    }
 
     let Ok(ip) = cli.host.parse::<IpAddr>() else {
         eprintln!("zapd: invalid host {}", cli.host);
@@ -394,6 +407,40 @@ async fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn run_autorun(path: &std::path::Path, session_path: &std::path::Path) -> ExitCode {
+    let session = match Session::open(session_path) {
+        Ok(session) => Arc::new(session),
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
+    let hosts = match zap_automation::Hosts::with_defaults(session) {
+        Ok(hosts) => hosts,
+        Err(err) => {
+            eprintln!("zapd: {err}");
+            return ExitCode::from(1);
+        }
+    };
+    let path = path.to_path_buf();
+    let joined = std::thread::spawn(move || zap_automation::run_file(&path, &hosts)).join();
+    match joined {
+        Ok(Ok(result)) => {
+            println!("automation plan finished ({} jobs)", result.jobs.len());
+            println!("Not an official OWASP ZAP build.");
+            ExitCode::SUCCESS
+        }
+        Ok(Err(err)) => {
+            eprintln!("zapd: {err}");
+            ExitCode::from(1)
+        }
+        Err(_) => {
+            eprintln!("zapd: automation plan panicked");
+            ExitCode::from(1)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{normalize_args, Cli};
@@ -490,6 +537,16 @@ mod tests {
             Some("http://127.0.0.1:8080/api")
         );
         assert!(cli.spider_seed.is_empty());
+    }
+
+    #[test]
+    fn autorun_flag_sets_the_plan_path() {
+        let cli = Cli::parse_from(normalize_args([
+            "zapd".to_string(),
+            "-autorun".to_string(),
+            "plan.yaml".to_string(),
+        ]));
+        assert_eq!(cli.autorun, Some(PathBuf::from("plan.yaml")));
     }
 
     #[test]

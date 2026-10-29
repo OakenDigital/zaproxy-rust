@@ -1,0 +1,24 @@
+[package]
+name = "zap-automation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "YAML automation plan runner. No JDK and no browser."
+
+[dependencies]
+bytes.workspace = true
+http.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+serde_yaml = "0.9"
+thiserror.workspace = true
+tokio.workspace = true
+zap-ascan.workspace = true
+zap-auth.workspace = true
+zap-core.workspace = true
+zap-http.workspace = true
+zap-pscan.workspace = true
+zap-spider.workspace = true
+zap-store.workspace = true

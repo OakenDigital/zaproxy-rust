@@ -23,10 +23,37 @@ jobs:
       run:
         working-directory: rust
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: actions/checkout@v7
+      - name: Read rust/rust-toolchain.toml
+        id: toolchain
+        working-directory: ${{ github.workspace }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          data = tomllib.loads(Path("rust/rust-toolchain.toml").read_text())
+          tool = data["toolchain"]
+          channel = tool["channel"]
+          if not channel:
+              raise SystemExit("rust/rust-toolchain.toml is missing toolchain.channel")
+          components = ",".join(tool.get("components", []))
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+              fh.write(f"channel={channel}\n")
+              fh.write(f"components={components}\n")
+          print(f"channel={channel}")
+          print(f"components={components}")
+          PY
+      - name: Install committed toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          components: rustfmt, clippy
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: ${{ steps.toolchain.outputs.components }}
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: rust
       - name: fmt
         run: cargo fmt --all --check
       - name: clippy

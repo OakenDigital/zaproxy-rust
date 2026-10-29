@@ -32,7 +32,10 @@ use zap_store::Session;
 use crate::coding::form_pairs;
 use crate::context::ActivePlugin;
 use crate::engine::{Engine, ScanOptions};
-use crate::rules::{CrlfInjectionScanRule, XpathInjectionScanRule};
+use crate::rules::{
+    CrlfInjectionScanRule, CrossSiteScriptingScanRule, DirectoryBrowsingScanRule,
+    SqlInjectionScanRule, XpathInjectionScanRule,
+};
 use crate::sender::ScanSender;
 
 /// Active scan API and engine.
@@ -54,6 +57,9 @@ impl ActiveScanService {
         let mut plugins: Vec<Arc<dyn ActivePlugin>> = vec![
             Arc::new(CrlfInjectionScanRule),
             Arc::new(XpathInjectionScanRule),
+            Arc::new(CrossSiteScriptingScanRule),
+            Arc::new(SqlInjectionScanRule),
+            Arc::new(DirectoryBrowsingScanRule),
         ];
         plugins.extend(extra);
         Self {

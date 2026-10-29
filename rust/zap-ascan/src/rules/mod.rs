@@ -19,7 +19,13 @@
 //! Rules ported from ascanrules v78. The Java add-on is not vendored.
 
 mod crlf;
+mod directory;
+mod sqli;
 mod xpath;
+mod xss;
 
 pub use crlf::{CrlfInjectionScanRule, CRLF_NAME, CRLF_PLUGIN_ID};
+pub use directory::{DirectoryBrowsingScanRule, DIRECTORY_NAME, DIRECTORY_PLUGIN_ID};
+pub use sqli::{SqlInjectionScanRule, SQLI_NAME, SQLI_PLUGIN_ID};
 pub use xpath::{XpathInjectionScanRule, XPATH_NAME, XPATH_PLUGIN_ID};
+pub use xss::{CrossSiteScriptingScanRule, XSS_NAME, XSS_PLUGIN_ID};

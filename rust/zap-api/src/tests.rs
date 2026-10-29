@@ -493,7 +493,7 @@ fn pscan_routes_list_the_ported_rule_and_an_empty_queue() {
     let (api, _, _) = open();
     let (status, scanners) = call(&api, "http://zap/JSON/pscan/view/scanners/");
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(scanners["scanners"].as_array().unwrap().len(), 1);
+    assert_eq!(scanners["scanners"].as_array().unwrap().len(), 8);
     assert_eq!(
         scanners["scanners"][0],
         serde_json::json!({
@@ -573,17 +573,60 @@ fn ascan_scanner_routes_cover_the_two_ported_rules() {
                 "quality": "release",
                 "status": "release",
                 "wascId": "39",
+            },
+            {
+                "alertThreshold": "DEFAULT",
+                "allDependenciesAvailable": "true",
+                "attackStrength": "DEFAULT",
+                "cweId": "79",
+                "dependencies": [],
+                "enabled": "true",
+                "id": "40012",
+                "name": "Cross Site Scripting (Reflected)",
+                "policyId": "4",
+                "quality": "release",
+                "status": "release",
+                "wascId": "8",
+            },
+            {
+                "alertThreshold": "DEFAULT",
+                "allDependenciesAvailable": "true",
+                "attackStrength": "DEFAULT",
+                "cweId": "89",
+                "dependencies": [],
+                "enabled": "true",
+                "id": "40018",
+                "name": "SQL Injection",
+                "policyId": "4",
+                "quality": "release",
+                "status": "release",
+                "wascId": "19",
+            },
+            {
+                "alertThreshold": "DEFAULT",
+                "allDependenciesAvailable": "true",
+                "attackStrength": "DEFAULT",
+                "cweId": "548",
+                "dependencies": [],
+                "enabled": "true",
+                "id": "0",
+                "name": "Directory Browsing",
+                "policyId": "0",
+                "quality": "release",
+                "status": "release",
+                "wascId": "48",
             }
         ])
     );
 
     let (status, injection) = call(&api, "http://zap/JSON/ascan/view/scanners/?policyId=4");
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(injection["scanners"].as_array().unwrap().len(), 2);
+    assert_eq!(injection["scanners"].as_array().unwrap().len(), 4);
 
     let (status, other) = call(&api, "http://zap/JSON/ascan/view/scanners/?policyId=0");
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(other["scanners"].as_array().unwrap().len(), 0);
+    assert_eq!(other["scanners"].as_array().unwrap().len(), 1);
+    assert_eq!(other["scanners"][0]["id"], "0");
 
     let (status, unknown_category) = call(&api, "http://zap/JSON/ascan/view/scanners/?policyId=9");
     assert_eq!(status, StatusCode::BAD_REQUEST);

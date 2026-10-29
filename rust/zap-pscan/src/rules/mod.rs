@@ -18,4 +18,5 @@
 
 //! Passive rules compiled into this crate. The Java add-on is not vendored.
 
+pub mod disclosure;
 pub mod x_content_type_options;

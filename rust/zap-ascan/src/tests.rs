@@ -16,7 +16,7 @@
 // and the architecture (Apache License 2.0, section 4). It is not an
 // official OWASP ZAP build.
 
-//! Unit tests for variants, both rules, strength, threshold, stop, and the API.
+//! Unit tests for variants, the ported rules, strength, threshold, stop, and the API.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -32,8 +32,10 @@ use crate::context::{ActivePlugin, ScanContext};
 use crate::policy::{AlertThreshold, AttackStrength, Policy};
 use crate::variant::{variants_for, VariantKind};
 use crate::{
-    host_key, ActiveScanService, Engine, RaisedAlert, ScanOptions, ScanSender, CRLF_NAME,
-    CRLF_PLUGIN_ID, XPATH_NAME, XPATH_PLUGIN_ID,
+    host_key, ActiveScanService, CrossSiteScriptingScanRule, DirectoryBrowsingScanRule, Engine,
+    RaisedAlert, ScanOptions, ScanSender, SqlInjectionScanRule, CRLF_NAME, CRLF_PLUGIN_ID,
+    DIRECTORY_NAME, DIRECTORY_PLUGIN_ID, SQLI_NAME, SQLI_PLUGIN_ID, XPATH_NAME, XPATH_PLUGIN_ID,
+    XSS_NAME, XSS_PLUGIN_ID,
 };
 
 fn temp_session() -> (std::path::PathBuf, Arc<Session>) {
@@ -677,4 +679,463 @@ fn wait_for_request(engine: &Engine, id: i32) {
 fn host_key_of(url: &str) -> String {
     let msg = message(Method::GET, url, HeaderMap::new(), "");
     host_key(&msg)
+}
+
+const SCRIPT_ALERT: &str = "<scrIpt>alert(1);</scRipt>";
+const EYE_CATCHER: &str = "0W45pz4p";
+
+enum Reflect {
+    Body,
+    Encoded,
+    HeaderSplit,
+}
+
+struct Reflector {
+    param: &'static str,
+    mode: Reflect,
+}
+
+impl ScanSender for Reflector {
+    fn send(&self, msg: &mut HttpMessage) -> Result<HttpResponse, String> {
+        let value = param_value(msg, self.param).unwrap_or_default();
+        let mut headers = HeaderMap::new();
+        let body = match self.mode {
+            Reflect::Body => value,
+            Reflect::Encoded => {
+                if value.contains('<') {
+                    value.replace('<', "&lt;")
+                } else if value.contains(EYE_CATCHER) {
+                    value
+                } else {
+                    "ok".to_string()
+                }
+            }
+            Reflect::HeaderSplit => {
+                if value.contains(EYE_CATCHER) {
+                    headers.insert("x-reflect", HeaderValue::from_str(&value).unwrap());
+                }
+                if value.contains("\n\r\n\r") {
+                    value
+                } else {
+                    "ok".to_string()
+                }
+            }
+        };
+        Ok(html(body.as_bytes(), headers))
+    }
+}
+
+fn scan_one(
+    seed: HttpMessage,
+    sender: Arc<dyn ScanSender>,
+    plugin: Arc<dyn ActivePlugin>,
+) -> (Vec<RaisedAlert>, Vec<zap_store::AlertRow>, usize) {
+    let (dir, session) = temp_session();
+    let engine = Engine::with_plugins(Arc::clone(&session), sender, vec![plugin]);
+    let id = engine.start(seed, ScanOptions::default());
+    assert!(engine.wait(id, Duration::from_secs(5)));
+    let alerts = engine.alerts(id).unwrap();
+    let stored = session.alerts().unwrap();
+    let requests = engine.request_count(id).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
+    (alerts, stored, requests)
+}
+
+fn assert_stored(alert: &RaisedAlert, stored: &zap_store::AlertRow) {
+    assert_eq!(stored.plugin_id, alert.plugin_id);
+    assert_eq!(stored.risk, alert.risk);
+    assert_eq!(stored.confidence, alert.confidence);
+    assert_eq!(stored.cwe_id, alert.cwe_id);
+    assert_eq!(stored.wasc_id, alert.wasc_id);
+    assert_eq!(stored.param, alert.param);
+    assert_eq!(stored.url, alert.url);
+}
+
+fn assert_xss(alert: &RaisedAlert, param: &str, attack: &str) {
+    assert_eq!(alert.plugin_id, XSS_PLUGIN_ID);
+    assert_eq!(alert.plugin_id, 40012);
+    assert_eq!(alert.name, XSS_NAME);
+    assert_eq!(alert.name, "Cross Site Scripting (Reflected)");
+    assert_eq!(alert.risk, 3);
+    assert_eq!(alert.confidence, 2);
+    assert_eq!(alert.cwe_id, 79);
+    assert_eq!(alert.wasc_id, 8);
+    assert_eq!(alert.param, param);
+    assert_eq!(alert.attack, attack);
+    assert_eq!(alert.evidence, attack);
+}
+
+#[test]
+fn reflected_xss_alerts_on_query_form_and_json() {
+    let query = message(
+        Method::GET,
+        "http://fixture.test/xss?q=hello",
+        HeaderMap::new(),
+        "",
+    );
+    let (alerts, stored, _) = scan_one(
+        query,
+        Arc::new(Reflector {
+            param: "q",
+            mode: Reflect::Body,
+        }),
+        Arc::new(CrossSiteScriptingScanRule),
+    );
+    assert_eq!(alerts.len(), 1, "{alerts:?}");
+    assert_xss(&alerts[0], "q", SCRIPT_ALERT);
+    assert!(alerts[0].url.contains("q="));
+    assert_eq!(stored.len(), 1);
+    assert_stored(&alerts[0], &stored[0]);
+
+    let form = message(
+        Method::POST,
+        "http://fixture.test/xss-form",
+        content_type("application/x-www-form-urlencoded"),
+        "q=hello",
+    );
+    let (form_alerts, form_stored, _) = scan_one(
+        form,
+        Arc::new(Reflector {
+            param: "q",
+            mode: Reflect::Body,
+        }),
+        Arc::new(CrossSiteScriptingScanRule),
+    );
+    assert_eq!(form_alerts.len(), 1);
+    assert_xss(&form_alerts[0], "q", SCRIPT_ALERT);
+    assert_eq!(form_alerts[0].url, "http://fixture.test/xss-form");
+    assert_stored(&form_alerts[0], &form_stored[0]);
+
+    let json = message(
+        Method::POST,
+        "http://fixture.test/xss-json",
+        content_type("application/json"),
+        "{\"q\":\"hello\"}",
+    );
+    let (json_alerts, json_stored, _) = scan_one(
+        json,
+        Arc::new(Reflector {
+            param: "q",
+            mode: Reflect::Body,
+        }),
+        Arc::new(CrossSiteScriptingScanRule),
+    );
+    assert_eq!(json_alerts.len(), 1);
+    assert_xss(&json_alerts[0], "q", SCRIPT_ALERT);
+    assert_eq!(json_alerts[0].url, "http://fixture.test/xss-json");
+    assert_stored(&json_alerts[0], &json_stored[0]);
+}
+
+#[test]
+fn html_encoded_reflection_and_put_do_not_raise_xss() {
+    let seed = message(
+        Method::GET,
+        "http://fixture.test/xss?q=hello",
+        HeaderMap::new(),
+        "",
+    );
+    let (alerts, _, _) = scan_one(
+        seed,
+        Arc::new(Reflector {
+            param: "q",
+            mode: Reflect::Encoded,
+        }),
+        Arc::new(CrossSiteScriptingScanRule),
+    );
+    assert!(alerts.is_empty(), "{alerts:?}");
+
+    let put = message(
+        Method::PUT,
+        "http://fixture.test/xss?q=hello",
+        HeaderMap::new(),
+        "",
+    );
+    let (put_alerts, _, requests) = scan_one(
+        put,
+        Arc::new(Reflector {
+            param: "q",
+            mode: Reflect::Body,
+        }),
+        Arc::new(CrossSiteScriptingScanRule),
+    );
+    assert!(put_alerts.is_empty());
+    assert_eq!(requests, 0);
+}
+
+#[test]
+fn header_split_reflection_raises_xss_when_the_body_echoes_the_payload() {
+    let seed = message(
+        Method::GET,
+        "http://fixture.test/xss?q=hello",
+        HeaderMap::new(),
+        "",
+    );
+    let (alerts, stored, _) = scan_one(
+        seed,
+        Arc::new(Reflector {
+            param: "q",
+            mode: Reflect::HeaderSplit,
+        }),
+        Arc::new(CrossSiteScriptingScanRule),
+    );
+    assert_eq!(alerts.len(), 1, "{alerts:?}");
+    let attack = format!("hello\n\r\n\r{SCRIPT_ALERT}");
+    assert_xss(&alerts[0], "q", &attack);
+    assert_stored(&alerts[0], &stored[0]);
+}
+
+enum SqlMode {
+    Mysql,
+    Expression,
+    ServerError,
+    Clean,
+}
+
+struct SqlFixture {
+    mode: SqlMode,
+}
+
+impl ScanSender for SqlFixture {
+    fn send(&self, msg: &mut HttpMessage) -> Result<HttpResponse, String> {
+        let value = param_value(msg, "q").unwrap_or_default();
+        match self.mode {
+            SqlMode::Mysql => {
+                let body: &[u8] = if value.contains('\'') {
+                    b"You have an error in your SQL syntax"
+                } else {
+                    b"ok"
+                };
+                Ok(html(body, HeaderMap::new()))
+            }
+            SqlMode::Expression => {
+                let body: &[u8] = if value == "4-2" || value == "4/2" {
+                    b"rows=0"
+                } else {
+                    b"rows=1"
+                };
+                Ok(html(body, HeaderMap::new()))
+            }
+            SqlMode::ServerError => {
+                let status = if value.contains('\'') {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                } else {
+                    StatusCode::OK
+                };
+                Ok(HttpResponse {
+                    status,
+                    headers: HeaderMap::new(),
+                    body: Bytes::from_static(b"ok"),
+                })
+            }
+            SqlMode::Clean => Ok(html(b"ok", HeaderMap::new())),
+        }
+    }
+}
+
+fn assert_sqli(alert: &RaisedAlert, name: &str, confidence: i32, param: &str, attack: &str) {
+    assert_eq!(alert.plugin_id, SQLI_PLUGIN_ID);
+    assert_eq!(alert.plugin_id, 40018);
+    assert_eq!(alert.name, name);
+    assert_eq!(alert.risk, 3);
+    assert_eq!(alert.confidence, confidence);
+    assert_eq!(alert.cwe_id, 89);
+    assert_eq!(alert.wasc_id, 19);
+    assert_eq!(alert.param, param);
+    assert_eq!(alert.attack, attack);
+}
+
+#[test]
+fn sql_error_expression_and_http_500_cover_query_form_and_json() {
+    let query = message(
+        Method::GET,
+        "http://fixture.test/sql?q=name",
+        HeaderMap::new(),
+        "",
+    );
+    let (alerts, stored, _) = scan_one(
+        query,
+        Arc::new(SqlFixture {
+            mode: SqlMode::Mysql,
+        }),
+        Arc::new(SqlInjectionScanRule),
+    );
+    assert_eq!(alerts.len(), 1, "{alerts:?}");
+    assert_sqli(&alerts[0], "SQL Injection - MySQL", 2, "q", "'");
+    assert_eq!(alerts[0].evidence, "You have an error in your SQL syntax");
+    assert!(alerts[0].url.contains("q=%27"));
+    assert_stored(&alerts[0], &stored[0]);
+
+    let form = message(
+        Method::POST,
+        "http://fixture.test/sql-form",
+        content_type("application/x-www-form-urlencoded"),
+        "q=1",
+    );
+    let (form_alerts, form_stored, _) = scan_one(
+        form,
+        Arc::new(SqlFixture {
+            mode: SqlMode::Expression,
+        }),
+        Arc::new(SqlInjectionScanRule),
+    );
+    assert_eq!(form_alerts.len(), 1, "{form_alerts:?}");
+    assert_sqli(&form_alerts[0], SQLI_NAME, 2, "q", "3-2");
+    assert_eq!(form_alerts[0].name, "SQL Injection");
+    assert_eq!(form_alerts[0].url, "http://fixture.test/sql-form");
+    assert_stored(&form_alerts[0], &form_stored[0]);
+
+    let json = message(
+        Method::POST,
+        "http://fixture.test/sql-json",
+        content_type("application/json"),
+        "{\"q\":\"1\"}",
+    );
+    let (json_alerts, json_stored, _) = scan_one(
+        json,
+        Arc::new(SqlFixture {
+            mode: SqlMode::ServerError,
+        }),
+        Arc::new(SqlInjectionScanRule),
+    );
+    assert_eq!(json_alerts.len(), 1, "{json_alerts:?}");
+    assert_sqli(&json_alerts[0], SQLI_NAME, 1, "q", "'");
+    assert_eq!(
+        json_alerts[0].evidence,
+        "HTTP/1.1 500 Internal Server Error"
+    );
+    assert_eq!(json_alerts[0].url, "http://fixture.test/sql-json");
+    assert_stored(&json_alerts[0], &json_stored[0]);
+}
+
+#[test]
+fn sql_injection_stays_quiet_without_an_error_or_expression_difference() {
+    let seed = message(
+        Method::GET,
+        "http://fixture.test/sql?q=name",
+        HeaderMap::new(),
+        "",
+    );
+    let (alerts, stored, _) = scan_one(
+        seed,
+        Arc::new(SqlFixture {
+            mode: SqlMode::Clean,
+        }),
+        Arc::new(SqlInjectionScanRule),
+    );
+    assert!(alerts.is_empty(), "{alerts:?}");
+    assert!(stored.is_empty());
+}
+
+struct DirectoryPage {
+    status: StatusCode,
+    body: &'static [u8],
+    seen: Mutex<Vec<String>>,
+}
+
+impl ScanSender for DirectoryPage {
+    fn send(&self, msg: &mut HttpMessage) -> Result<HttpResponse, String> {
+        self.seen.lock().unwrap().push(msg.url());
+        Ok(HttpResponse {
+            status: self.status,
+            headers: HeaderMap::new(),
+            body: Bytes::from_static(self.body),
+        })
+    }
+}
+
+fn assert_directory(alert: &RaisedAlert, confidence: i32, evidence: &str, url: &str) {
+    assert_eq!(alert.plugin_id, DIRECTORY_PLUGIN_ID);
+    assert_eq!(alert.plugin_id, 0);
+    assert_eq!(alert.name, DIRECTORY_NAME);
+    assert_eq!(alert.name, "Directory Browsing");
+    assert_eq!(alert.risk, 2);
+    assert_eq!(alert.confidence, confidence);
+    assert_eq!(alert.cwe_id, 548);
+    assert_eq!(alert.wasc_id, 48);
+    assert_eq!(alert.param, "");
+    assert_eq!(alert.evidence, evidence);
+    assert_eq!(alert.attack, url);
+    assert_eq!(alert.url, url);
+}
+
+#[test]
+fn active_directory_browsing_strips_the_query_and_requires_a_listing() {
+    let seed = message(
+        Method::GET,
+        "http://fixture.test/files?x=1",
+        HeaderMap::new(),
+        "",
+    );
+    let page = Arc::new(DirectoryPage {
+        status: StatusCode::OK,
+        body: b"Index\nParent Directory\n",
+        seen: Mutex::new(Vec::new()),
+    });
+    let (alerts, stored, requests) = scan_one(
+        seed,
+        Arc::clone(&page) as Arc<dyn ScanSender>,
+        Arc::new(DirectoryBrowsingScanRule),
+    );
+    assert_eq!(requests, 1);
+    assert_eq!(alerts.len(), 1, "{alerts:?}");
+    assert_directory(
+        &alerts[0],
+        2,
+        "Parent Directory",
+        "http://fixture.test/files/",
+    );
+    assert_stored(&alerts[0], &stored[0]);
+    assert_eq!(
+        page.seen.lock().unwrap().as_slice(),
+        ["http://fixture.test/files/"]
+    );
+
+    let low = Arc::new(DirectoryPage {
+        status: StatusCode::OK,
+        body: b"Directory of files\n<IMG=icon>",
+        seen: Mutex::new(Vec::new()),
+    });
+    let low_seed = message(
+        Method::GET,
+        "http://fixture.test/files/",
+        HeaderMap::new(),
+        "",
+    );
+    let (low_alerts, _, _) = scan_one(low_seed, low, Arc::new(DirectoryBrowsingScanRule));
+    assert_eq!(low_alerts.len(), 1);
+    assert_directory(&low_alerts[0], 1, "Directory", "http://fixture.test/files/");
+
+    let missing = Arc::new(DirectoryPage {
+        status: StatusCode::NOT_FOUND,
+        body: b"Parent Directory",
+        seen: Mutex::new(Vec::new()),
+    });
+    let (none, _, _) = scan_one(
+        message(
+            Method::GET,
+            "http://fixture.test/files?x=1",
+            HeaderMap::new(),
+            "",
+        ),
+        missing,
+        Arc::new(DirectoryBrowsingScanRule),
+    );
+    assert!(none.is_empty());
+
+    let plain = Arc::new(DirectoryPage {
+        status: StatusCode::OK,
+        body: b"<html><body>ok</body></html>",
+        seen: Mutex::new(Vec::new()),
+    });
+    let (plain_alerts, _, _) = scan_one(
+        message(
+            Method::GET,
+            "http://fixture.test/files?x=1",
+            HeaderMap::new(),
+            "",
+        ),
+        plain,
+        Arc::new(DirectoryBrowsingScanRule),
+    );
+    assert!(plain_alerts.is_empty());
 }

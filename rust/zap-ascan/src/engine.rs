@@ -29,7 +29,10 @@ use zap_store::Session;
 
 use crate::context::{dispatch, ActivePlugin, RaisedAlert, ScanContext, ScanParts};
 use crate::policy::{AttackStrength, Policy};
-use crate::rules::{CrlfInjectionScanRule, XpathInjectionScanRule};
+use crate::rules::{
+    CrlfInjectionScanRule, CrossSiteScriptingScanRule, DirectoryBrowsingScanRule,
+    SqlInjectionScanRule, XpathInjectionScanRule,
+};
 use crate::sender::ScanSender;
 
 /// Options for one scan. `recurse` is recorded; this phase scans the seed only.
@@ -195,6 +198,9 @@ fn default_plugins() -> Vec<Arc<dyn ActivePlugin>> {
     vec![
         Arc::new(CrlfInjectionScanRule),
         Arc::new(XpathInjectionScanRule),
+        Arc::new(CrossSiteScriptingScanRule),
+        Arc::new(SqlInjectionScanRule),
+        Arc::new(DirectoryBrowsingScanRule),
     ]
 }
 

@@ -5,11 +5,12 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 rust-version.workspace = true
-description = "Passive-scan queue and the X-Content-Type-Options header rule."
+description = "Passive-scan queue, X-Content-Type-Options, and disclosure rules."
 
 [dependencies]
 bytes.workspace = true
 http.workspace = true
+regex.workspace = true
 tracing.workspace = true
 zap-core.workspace = true
 zap-store.workspace = true

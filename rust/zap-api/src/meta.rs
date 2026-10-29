@@ -131,6 +131,9 @@ impl MetaState {
                 // Ids, names, CWE, and WASC match the ported ascanrules.
                 active(40003, "CRLF Injection", 113, 25),
                 active(90021, "XPath Injection", 643, 39),
+                active(40012, "Cross Site Scripting (Reflected)", 79, 8),
+                active(40018, "SQL Injection", 89, 19),
+                listed(0, "Directory Browsing", 548, 48, 0),
             ],
             contexts: Vec::new(),
             next_context_id: 1,
@@ -142,16 +145,29 @@ impl MetaState {
     ///
     /// `getAlertThreshold(true)` returns `DEFAULT` until a threshold is stored.
     pub(crate) fn pscan_scanners(&self) -> Value {
-        json!({
-            "scanners": [{
-                "id": PSCAN_ID.to_string(),
-                "name": PSCAN_NAME,
+        let scanners = [
+            (PSCAN_ID, PSCAN_NAME),
+            (10033, "Directory Browsing"),
+            (10023, "Information Disclosure - Debug Error Messages"),
+            (10027, "Information Disclosure - Suspicious Comments"),
+            (10009, "In Page Banner Information Leak"),
+            (10039, "X-Backend-Server Header Information Leak"),
+            (10052, "X-ChromeLogger-Data (XCOLD) Header Information Leak"),
+            (10056, "X-Debug-Token Information Leak"),
+        ]
+        .into_iter()
+        .map(|(id, name)| {
+            json!({
+                "id": id.to_string(),
+                "name": name,
                 "enabled": "true",
                 "alertThreshold": "DEFAULT",
                 "quality": RULE_STATUS,
                 "status": RULE_STATUS,
-            }]
+            })
         })
+        .collect::<Vec<_>>();
+        json!({ "scanners": scanners })
     }
 
     pub(crate) fn records_to_scan(&self) -> Value {
@@ -456,12 +472,16 @@ impl ImportedContext {
 }
 
 fn active(id: i32, name: &'static str, cwe_id: i32, wasc_id: i32) -> ActiveScanner {
+    listed(id, name, cwe_id, wasc_id, INJECTION)
+}
+
+fn listed(id: i32, name: &'static str, cwe_id: i32, wasc_id: i32, policy_id: i32) -> ActiveScanner {
     ActiveScanner {
         id,
         name,
         cwe_id,
         wasc_id,
-        policy_id: INJECTION,
+        policy_id,
         enabled: true,
         alert_threshold: "DEFAULT".to_string(),
         attack_strength: "DEFAULT".to_string(),
